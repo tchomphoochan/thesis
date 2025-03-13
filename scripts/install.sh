@@ -113,7 +113,7 @@ make PREFIX=$LOCAL_ROOT BINDIR=$BIN_DIR -C $SRC_DIR/fpgajtag/src install
 # so make install is really for the sake of installing the drivers.
 if ! [ -d $CONNECTALDIR ]; then
   echo Cloning connectal...
-  git clone --recursive https://github.com/cambridgehackers/connectal.git $SRC_DIR/connectal
+  git clone --recursive https://github.com/tchomphoochan/connectal.git $SRC_DIR/connectal
 else
   echo Skipping cloning connectal.
 fi
