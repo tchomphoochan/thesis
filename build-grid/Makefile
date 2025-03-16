@@ -4,5 +4,4 @@ all:
 
 .PHONY: clean
 clean:
-	rm -fR pmhw-bitstream-cache
 	rm -fR pmhw-workdir
