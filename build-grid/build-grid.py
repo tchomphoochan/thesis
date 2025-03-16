@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 
-import libtmux
 import logging
 import sys
-import shutil
 import os
-import tempfile
 import subprocess
+import argparse
+from typing import Literal
 
 # ###
 # TODO: Set the following variables before running the script
@@ -43,14 +42,17 @@ typedef {} LogSizeRenamerBuffer;
 """
 CONFIG_LEN = CONFIG_TMPL.count("{}")
 BUILD_NAME_TMPL = "-".join(["{}"] * CONFIG_LEN)  # {}-{}-{}-...-{}  CONFIG_LEN times
-TMUX_SESSION_NAME = "pmhw-build-grid"
 
 # ###
 # Script starts here.
 # ###
 
 
-def main(logger: logging.Logger):
+def main(
+    logger: logging.Logger,
+    action: Literal["check", "build", "load"],
+    configs: list[tuple[int]],
+):
     # Ensures all necessary directories exist
     if not os.path.exists(ORIG_DIR):
         logger.critical(f"{ORIG_DIR = } must exist.")
@@ -87,7 +89,7 @@ def main(logger: logging.Logger):
     logger.info(f"Note, {ORIG_DIR} has hash = {hash}")
 
     # For each config...
-    for config in CONFIG_VALUES:
+    for config in configs:
         # Create a work directory corresponding to that config
         folder_name = BUILD_NAME_TMPL.format(*config)
         folder_path = os.path.join(WORKDIR, folder_name)
@@ -105,22 +107,27 @@ def main(logger: logging.Logger):
         with open(hash_path, "w") as hash_file:
             hash_file.write(hash)
 
-        # Create a symlink
-        bit_path = os.path.join("..", folder_path, BITFILE_PATH)
-        symlink_path = os.path.join(CACHE_DIR, folder_name + ".bit")
-        if os.path.islink(symlink_path):
-            logger.info(f"Removing old symlink {symlink_path}")
-            os.remove(symlink_path)
-        logger.info(f"Creating symlink {bit_path} -> {symlink_path}")
-        os.symlink(bit_path, symlink_path)
 
-        hash_path = os.path.join("..", folder_path, HASH_PATH)
-        symlink_path = os.path.join(CACHE_DIR, folder_name + ".md5")
-        if os.path.islink(symlink_path):
-            logger.info(f"Removing old symlink {symlink_path}")
-            os.remove(symlink_path)
-        logger.info(f"Creating symlink {hash_path} -> {symlink_path}")
-        os.symlink(hash_path, symlink_path)
+def build_args_parser(*, logger: logging.Logger) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Command line utility to manage multiple Puppetmaster builds."
+    )
+    parser.add_argument("action", choices=["check", "build", "load"])
+    parser.add_argument("config")
+    return parser
+
+
+def parse_configs(text: str, *, logger: logging.Logger) -> list[tuple[int]]:
+    if text == "all":
+        return CONFIG_VALUES
+
+    entries = text.split(";")
+    configs = [tuple(int(val) for val in entry.split(",")) for entry in entries]
+
+    for config in configs:
+        assert len(config) == 9
+
+    return configs
 
 
 if __name__ == "__main__":
@@ -133,4 +140,6 @@ if __name__ == "__main__":
     logger.setLevel(logging.INFO)
     logger.addHandler(console_handler)
 
-    main(logger)
+    parser = build_args_parser(logger=logger)
+    args = parser.parse_args()
+    main(logger, args.action, parse_configs(args.config, logger=logger))
