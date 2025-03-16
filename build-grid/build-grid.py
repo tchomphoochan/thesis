@@ -2,6 +2,7 @@
 
 import logging
 import sys
+import shutil
 import os
 import subprocess
 import argparse
@@ -29,7 +30,7 @@ WORKDIR = "pmhw-workdir"
 CACHE_DIR = "pmhw-bitstream-cache"
 CONFIG_PATH = os.path.join("bsv", "PmConfig.bsv")
 BITFILE_PATH = os.path.join(BOARD, "hw", "mkTop.bit")
-HASH_PATH = "dir.hash"
+HASH_PATH = "tar.md5"
 CONFIG_TMPL = """typedef {} LogNumberRenamerThreads;
 typedef {} LogNumberShards;
 typedef {} LogSizeShard;
@@ -41,7 +42,7 @@ typedef {} NumberAddressOffsetBits;
 typedef {} LogSizeRenamerBuffer;
 """
 CONFIG_LEN = CONFIG_TMPL.count("{}")
-BUILD_NAME_TMPL = "-".join(["{}"] * CONFIG_LEN)  # {}-{}-{}-...-{}  CONFIG_LEN times
+CONFIG_NAME_TMPL = "-".join(["{}"] * CONFIG_LEN)  # {}-{}-{}-...-{}  CONFIG_LEN times
 
 # ###
 # Script starts here.
@@ -88,24 +89,117 @@ def main(
     hash = hash_p.stdout.decode("utf-8").strip()
     logger.info(f"Note, {ORIG_DIR} has hash = {hash}")
 
-    # For each config...
+    # Do each config
     for config in configs:
-        # Create a work directory corresponding to that config
-        folder_name = BUILD_NAME_TMPL.format(*config)
-        folder_path = os.path.join(WORKDIR, folder_name)
-        logger.info(f"Creating {folder_path}")
-        subprocess.run(["rsync", "-h", "-r", ORIG_DIR + "/", folder_path + "/"])
+        handle_config(action, config, hash, logger=logger)
 
-        # Add the config file
-        config_path = os.path.join(folder_path, CONFIG_PATH)
-        with open(config_path, "w") as config_file:
-            content = CONFIG_TMPL.format(*config)
-            config_file.write(content)
 
-        # Add a hash file
-        hash_path = os.path.join(folder_path, HASH_PATH)
-        with open(hash_path, "w") as hash_file:
-            hash_file.write(hash)
+def handle_config(
+    action: Literal["check", "build", "load"],
+    config: tuple[int],
+    hash: str,
+    *,
+    logger: logging.Logger,
+):
+    print(f"Doing {action} on {config}...")
+    bitfile_path, up_to_date = check_config(config, hash, logger=logger)
+
+    if action == "check":
+        return
+
+    if action == "load":
+        print("Loading the configuration onto FPGA...")
+        subprocess.run(["fpgajtag", bitfile_path])
+        return
+
+    if action == "build":
+        print("Building the configuration...")
+        build_config(config, hash, logger=logger)
+
+    raise RuntimeError("Should not reach here")
+
+
+def check_config(
+    config: tuple[int], expected_hash: str, *, logger: logging.Logger
+) -> tuple[str | None, bool]:
+    """
+    Check whether a bitstream exists for the given configuration, and if so, is it up-to-date.
+    Returns (path to bitfile or none, up-to-date).
+    """
+
+    config_name = CONFIG_NAME_TMPL.format(*config)
+
+    bitfile_path = os.path.join(CACHE_DIR, config_name + ".bit")
+    if not os.path.exists(bitfile_path):
+        print(f"Bitstream file does not exist: {bitfile_path}")
+        return (None, False)
+
+    hash_path = os.path.join(CACHE_DIR, config_name + ".md5")
+    if not os.path.exists(hash_path):
+        print(f"Corresponding hash file does not exist: {hash_path}")
+        return (bitfile_path, False)
+
+    with open(hash_path, "r") as hash_file:
+        actual_hash = hash_file.read().strip()
+    if actual_hash != expected_hash:
+        print(
+            f"Bitstream file exists but hash does not match current source repo. Might be out of date."
+        )
+        print(f"Bitstream file: {bitfile_path}")
+        print(f"Actual hash value: {actual_hash}")
+        print(f"Expected hash value: {expected_hash}")
+        return (bitfile_path, False)
+
+    print(f"Bitstream file exists and the hash matches!")
+    print(f"Bitstream file: {bitfile_path}")
+    print(f"Hash value: {expected_hash}")
+    return (bitfile_path, True)
+
+
+def build_config(config: tuple[int], hash: str, *, logger: logging.Logger):
+    config_name = CONFIG_NAME_TMPL.format(*config)
+
+    # Create a work directory corresponding to that config
+    # Example: ./pmhw-workdir/<config>/
+    folder_path = os.path.join(WORKDIR, config_name)
+    logger.info(f"Creating {folder_path}")
+    subprocess.run(["rsync", "-h", "-r", ORIG_DIR + "/", folder_path + "/"])
+
+    # Add the config file
+    # Corresponds to: cp ./pmhw-src/DefaultPmConfig.bsv ./pmhw-workdir/<config>/bsv/PmConfig.bsv
+    config_path = os.path.join(folder_path, CONFIG_PATH)
+    with open(config_path, "w") as config_file:
+        content = CONFIG_TMPL.format(*config)
+        config_file.write(content)
+
+    # Add a hash file
+    # Corresponds to: touch ./pmhw-workdir/<config>/tar.md5
+    built_hash_path = os.path.join(folder_path, HASH_PATH)
+    with open(built_hash_path, "w") as hash_file:
+        hash_file.write(hash)
+
+    # Make sure to remove any lingering builds
+    # Corresponds to: rm -fR ./pmhw-workdir/<config>/vcu108
+    board_path = os.path.join(WORKDIR, config_name, BOARD)
+    if os.path.exists(board_path):
+        shutil.rmtree(board_path)
+
+    # All good now. Run the build.
+    # Corresponds to: make -C ./pmhw-workdir/<config> build.vcu108
+    subprocess.run(["make", f"build.{BOARD}"], cwd=folder_path)
+
+    # Extract the build.
+    built_bitfile_path = os.path.join(WORKDIR, config_name, BITFILE_PATH)
+    if not os.path.exists(built_bitfile_path):
+        logger.error(f"Failed to build: {built_bitfile_path}")
+        return
+
+    # Corresponds to: cp ./pmhw-workdir/<config>/vcu108/hw/mkTop.bit ./pmhw-bitstream-cache/<config>.bit
+    #               : cp ./pmhw-workdir/<config>/tar.md5            ./pmhw-bitstream-cache/<config>.md5
+    bitfile_path = os.path.join(CACHE_DIR, config_name + ".bit")
+    hash_path = os.path.join(CACHE_DIR, config_name + ".md5")
+    shutil.copy(built_bitfile_path, bitfile_path)
+    shutil.copy(built_hash_path, hash_path)
 
 
 def build_args_parser(*, logger: logging.Logger) -> argparse.ArgumentParser:
@@ -117,12 +211,21 @@ def build_args_parser(*, logger: logging.Logger) -> argparse.ArgumentParser:
     return parser
 
 
-def parse_configs(text: str, *, logger: logging.Logger) -> list[tuple[int]]:
+def parse_configs(
+    action: str, text: str, *, logger: logging.Logger
+) -> list[tuple[int]]:
     if text == "all":
-        return CONFIG_VALUES
+        if action == "load":
+            logger.critical("Cannot load all configurations at the same time")
+            sys.exit(os.EX_USAGE)
+        else:
+            return CONFIG_VALUES
 
     entries = text.split(";")
     configs = [tuple(int(val) for val in entry.split(",")) for entry in entries]
+    if len(configs) > 1 and action == "load":
+        logger.critical("Cannot load more than one configurations at a time")
+        sys.exit(os.EX_USAGE)
 
     for config in configs:
         assert len(config) == 9
@@ -142,4 +245,4 @@ if __name__ == "__main__":
 
     parser = build_args_parser(logger=logger)
     args = parser.parse_args()
-    main(logger, args.action, parse_configs(args.config, logger=logger))
+    main(logger, args.action, parse_configs(args.action, args.config, logger=logger))
