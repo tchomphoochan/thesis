@@ -4,4 +4,4 @@ all:
 
 .PHONY: clean
 clean:
-	rm -fR pmhw-workdir
+	rm -fR pmhw-build-config-*
