@@ -83,7 +83,7 @@ def main(
 
     # Gather the hash of the source directory
     hash_p = subprocess.run(
-        ["sh", "-c", "tar c %s | md5sum | awk '{ print $1 }'" % ORIG_DIR],
+        ["sh", "-c", "tar --exclude='.git' -c %s | md5sum | awk '{ print $1 }'" % ORIG_DIR],
         capture_output=True,
     )
     hash = hash_p.stdout.decode("utf-8").strip()
