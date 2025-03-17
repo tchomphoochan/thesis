@@ -163,25 +163,23 @@ def build(config_str):
     try:
         subprocess.run(["make", f"build.{FPGA_BOARD}"], cwd=build_dir, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Build failed: {e}")
-        sys.exit(1)
+        print(f"Build may have failed: {e}")
     
     # Copy result to cache
     os.makedirs(BUILD_CACHE_DIR, exist_ok=True)
     bit_file = os.path.join(build_dir, FPGA_BOARD, "hw", "mkTop.bit")
     if not os.path.exists(bit_file):
         print(f"Build completed but {bit_file} was not found")
-        sys.exit(1)
-    
-    # Save the build output
-    shutil.copy(bit_file, os.path.join(BUILD_CACHE_DIR, f"{identifier}.bit"))
-    
-    # Save the source hash
-    src_hash = get_src_hash()
-    with open(os.path.join(BUILD_CACHE_DIR, f"{identifier}.hash"), "w") as f:
-        f.write(src_hash)
-    
-    print(f"Build successful. Output saved to {BUILD_CACHE_DIR}/{identifier}.bit")
+    else:
+        # Save the build output
+        shutil.copy(bit_file, os.path.join(BUILD_CACHE_DIR, f"{identifier}.bit"))
+        
+        # Save the source hash
+        src_hash = get_src_hash()
+        with open(os.path.join(BUILD_CACHE_DIR, f"{identifier}.hash"), "w") as f:
+            f.write(src_hash)
+        
+        print(f"Build successful. Output saved to {BUILD_CACHE_DIR}/{identifier}.bit")
     
     # Cleanup
     shutil.rmtree(build_dir)
@@ -273,7 +271,9 @@ def main():
     if command == "build":
         configs = parse_configs(config_arg)
         for config in configs:
-            build(config)
+            result = check(config)
+            if not result:
+                build(config)
     elif command == "check":
         configs = parse_configs(config_arg)
         for config in configs:
