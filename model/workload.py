@@ -19,12 +19,12 @@ class Transaction:
     conflicts = r1w2_set | w1r2_set | w1w2_set
     return len(conflicts) == 0
 
-  def merge(self: Self, other: Self) -> Self:
-    assert self.compat(other), "Can only merge compatible transactions"
+  def merge(ts1: Self, ts2: Self) -> Self:
+    assert ts1.compat(ts2), "Can only merge compatible transactions"
     return Transaction(
-      ids = self.ids | other.ids,
-      read_set = self.read_set | other.read_set,
-      write_set = self.write_set | other.write_set
+      ids = ts1.ids | ts2.ids,
+      read_set = ts1.read_set | ts2.read_set,
+      write_set = ts1.write_set | ts2.write_set
     )
 
 def make_workload(addr_space: list[int], num_txn: int, num_elems_per_txn: int, zipf_param: float, write_probability: float):
