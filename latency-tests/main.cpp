@@ -88,12 +88,11 @@ int main() {
   // Test 3: Full duplex throughput
   {
     const auto t0 = std::chrono::steady_clock::now();
+    ppInd.setCountdown(NUM_SAMPLES-1);
     for (int sample = 0; sample < NUM_SAMPLES; ++sample) {
       ppReq->ping(true);
     }
-    for (int sample = 0; sample < NUM_SAMPLES; ++sample) {
-      sem_wait(&sem);
-    }
+    sem_wait(&sem);
     const auto t1 = std::chrono::steady_clock::now();
     const std::chrono::duration<double> d = t1-t0;
     double tp = NUM_SAMPLES / d.count();
