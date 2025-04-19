@@ -8,7 +8,7 @@ import abc
 class Set(abc.ABC):
   def add(self, elem: int):
     raise NotImplementedError
-    
+
   def __contains__(self, elem: int) -> bool:
     raise NotImplementedError
 
@@ -20,23 +20,23 @@ class Set(abc.ABC):
 
   def remove(self, elem: int):
     raise NotImplementedError
-  
+
   def __len__(self) -> int:
     raise NotImplementedError
-  
+
   def __copy__(self) -> Self:
     raise NotImplementedError
 
 
 @dataclass
-class BloomFilter:
+class BloomFilter(Set):
   bits: bitarray
   hash_fns: list[Callable[[int], int]]
-  
+
   def add(self, elem: int):
     for fn in self.hash_fns:
       self.bits[fn(elem)] = 1
-    
+
   def __contains__(self, elem: int) -> bool:
     return all((self.bits[fn(elem)] for fn in self.hash_fns))
 
@@ -54,22 +54,22 @@ class BloomFilter:
 
   def remove(self, elem: int):
     raise Exception("Bloom filter does not support removal")
-  
+
   def __len__(self) -> int:
     raise Exception("Bloom filter does not support length operation")
-  
+
   def __copy__(self) -> Self:
     return BloomFilter(bits=copy(self.bits), hash_fns=self.hash_fns)
 
 
 @dataclass
-class ParallelBloomFilter(abc.ABC):
+class ParallelBloomFilter(Set):
   parts: list[BloomFilter]
 
   def add(self, elem: int):
     for part in self.parts:
       part.add(elem)
-    
+
   def __contains__(self, elem: int) -> bool:
     return all(elem in part for part in self.parts)
 
@@ -85,10 +85,10 @@ class ParallelBloomFilter(abc.ABC):
 
   def remove(self, elem: int):
     raise Exception("Parallel bloom filter does not support removal")
-  
+
   def __len__(self) -> int:
     raise Exception("Parallel bloom filter does not support length operation")
-  
+
   def __copy__(self) -> Self:
     return ParallelBloomFilter(parts=[part.copy() for part in self.parts])
 
@@ -101,13 +101,22 @@ def make_hash_function(buckets):
   return f
 
 
-def make_bloom_filter(len_signature: int, num_hashes: int):
-  return BloomFilter(bits=bitarray(len_signature),
-                     hash_fns=[make_hash_function(len_signature) for _ in range(num_hashes)])
+def make_bloom_filter_family(len_signature: int, num_hashes: int) -> Callable[[], BloomFilter]:
+  hash_fns = [make_hash_function(len_signature) for _ in range(num_hashes)]
+  return lambda: BloomFilter(bits=bitarray(len_signature), hash_fns=hash_fns)
 
 
-def make_parallel_bloom_filter(len_signature: int, num_partitions: int):
+def make_bloom_filter(len_signature: int, num_hashes: int) -> BloomFilter:
+  return make_bloom_filter_family(len_signature, num_hashes)()
+
+
+def make_parallel_bloom_filter_family(len_signature: int, num_partitions: int) -> Callable[[], ParallelBloomFilter]:
   assert len_signature % num_partitions == 0
   len_per_part = len_signature // num_partitions
-  return ParallelBloomFilter(parts=[make_bloom_filter(len_per_part, 1) for _ in range(num_partitions)])
+  part_families = [make_bloom_filter_family(len_per_part, 1) for _ in range(num_partitions)]
+  return lambda: ParallelBloomFilter(parts=[part_families[i]() for i in range(num_partitions)])
+
+
+def make_parallel_bloom_filter(len_signature: int, num_partitions: int) -> ParallelBloomFilter:
+  return make_parallel_bloom_filter_family(len_signature, num_partitions)()
 
