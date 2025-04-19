@@ -109,7 +109,7 @@ class CuckooHashTable[K,V]:
     for attempt in range(self.num_tables):
       idx = self.hash_fn(key, attempt)
       assert 0 <= idx < n
-      if self.has[idx] and self.data[idx][0] == key or not self.has[idx]:
+      if self.has[idx] and self.data[idx][0] == key:
         self.data[idx] = (key, value)
         self.has[idx] = True
         self.insert_stats.append(attempt+1)
@@ -146,22 +146,26 @@ class CuckooHashTable[K,V]:
   def __repr__(self: Self):
     return type(self).__name__ + "(" + repr(self.data) +")"
 
-N = 4 * 2**12
-def my_hash(h, a):
+
+N = 4*2**12
+def my_hash(k, a):
   if a == 0:
-    return (h*98765431)%N
+    x = (k*98765431)
   elif a == 1:
-    return (h*536870911)%N
+    x = (k*536870911)
   elif a == 2:
-    return (h*1_000_000_007)%N
+    x = (k*1_000_000_007)
   elif a == 3:
-    return (h*1_000_000_009)%N
+    x = (k*1_000_000_009)
   else:
     raise Exception()
 
+  x %= N
+  return x
+
 def fuzz_test(mine, ref):
   keys = set()
-  for i in range(N//4//4):
+  for i in range(int(N//4 * 0.5)):
     k = random.randint(0, 2**30-1)
     while k in keys:
       k = random.randint(0, 2**30-1)
@@ -174,7 +178,7 @@ def fuzz_test(mine, ref):
     assert dict(mine.items()) == dict(ref.items()), f"failed on iteration {i}"
 
 if __name__ == "__main__":
-  H = CuckooHashTable(N, 3, my_hash)
+  H = CuckooHashTable(N, 4, my_hash)
   fuzz_test(H, {})
 
   df = pd.DataFrame(H.insert_stats)
