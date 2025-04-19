@@ -47,24 +47,37 @@ def get_data_for_config(len_signature: int, num_partitions: int) -> Tuple[np.arr
   return (num_elems_arr, rates, f'm={len_signature}, k={num_partitions}')
 
 def graph_false_pos_rate():
-  begin = time.time()
-  config_arr = [(512, 4), (512, 8), (1024, 4), (1024, 8)]
+  config_arrs = [
+    # same m/k
+    [(128, 1), (256, 2), (512, 4), (1024, 8)],
+    # same k, increasing m
+    [(128, 4), (256, 4), (512, 4), (1024, 4)],
+    # same m, increasing k
+    [(1024, 1), (1024, 2), (1024, 4), (1024, 8)],
+    # common configs
+    [(512, 4), (512, 8), (1024, 4), (1024, 8)],
+  ]
 
-  plt.figure()
-  plt.xlabel("Number of elements ($n$)")
-  plt.ylabel("Probability of conflict")
-  plt.xscale('log', base=2)
-  plt.yscale('linear')
+  for index, config_arr in enumerate(config_arrs):
+    begin = time.time()
 
-  with ProcessPoolExecutor() as exec:
-    for x, y, label in exec.map(get_data_for_config, *zip(*config_arr)):
+    plt.figure()
+    plt.title("False positive rate of parallel bloom filters")
+    plt.xlabel("Number of elements inserted ($n$)")
+    plt.ylabel("False positive rate")
+    plt.xscale('log', base=2)
+    plt.yscale('linear')
+    plt.grid()
+
+    for x, y, label in map(get_data_for_config, *zip(*config_arr)):
       plt.plot(x, y, '-', label=label)
 
-  plt.legend()
-  end = time.time()
-  print(f"Took {end-begin} seconds to render", file=sys.stderr)
+    plt.legend()
+    end = time.time()
 
-  plt.show()
+    filename = f"output-bloom-filter-{index}.svg"
+    print(f"Took {end-begin} seconds to render {filename}", file=sys.stderr)
+    plt.savefig(filename)
 
 if __name__ == "__main__":
   graph_false_pos_rate()

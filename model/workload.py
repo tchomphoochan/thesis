@@ -2,9 +2,11 @@ from typing import *
 from dataclasses import dataclass
 import itertools
 import random
+import numpy as np
+import matplotlib.pyplot as plt
 
-def make_zipf_weights(n: int, alpha: float):
-  return [1.0/(i+1)**alpha for i in range(n)]
+def make_zipf_weights(n: int, alpha: float) -> np.array:
+  return 1.0/(np.arange(n)+1)**alpha
 
 @dataclass(frozen=True)
 class Transaction:
@@ -27,7 +29,7 @@ class Transaction:
       write_set = ts1.write_set | ts2.write_set
     )
 
-def make_workload(addr_space: list[int], num_txn: int, num_elems_per_txn: int, zipf_param: float, write_probability: float):
+def make_workload(addr_space: np.array, num_txn: int, num_elems_per_txn: int, zipf_param: float, write_probability: float):
   zipf = make_zipf_weights(len(addr_space), zipf_param)
   total_objs = num_txn * num_elems_per_txn
 
