@@ -1,5 +1,6 @@
 from typing import *
-from workload import Transaction, make_workload
+from workload import Transaction, make_workload, compress_workload
+from bloom_filter import Set, make_parallel_bloom_filter_family
 import itertools
 import copy
 
@@ -11,9 +12,9 @@ class Scheduler(ABC):
 
 class GreedyScheduler(Scheduler):
   def schedule(_: Self, txns: list[Transaction]) -> list[Transaction]:
-    main_txn = Transaction(set(), set(), set())
-    sched_txns = []
-    for txn in txns:
+    main_txn = txns[0]
+    sched_txns = [txns[0]]
+    for txn in txns[1:]:
       if main_txn.compat(txn):
         main_txn = main_txn.merge(txn)
         sched_txns.append(txn)
@@ -21,7 +22,7 @@ class GreedyScheduler(Scheduler):
 
 class TournamentScheduler(Scheduler):
   def schedule(_: Self, all_txns: list[Transaction]) -> list[Transaction]:
-    txns = copy.deepcopy(all_txns)
+    txns = copy.copy(all_txns)
     while len(txns) > 1:
       new_txns = []
       for (ts1, ts2) in itertools.batched(txns, 2):
@@ -30,10 +31,31 @@ class TournamentScheduler(Scheduler):
       txns = new_txns
     return [all_txns[id] for id in txns[0].ids]
 
+class CompressedScheduler(Scheduler):
+  underlying: Scheduler
+  family: Callable[[], Set]
+
+  def __init__(self, underlying: Scheduler, family: Callable[[], Set]):
+    self.underlying = underlying
+    self.family = family
+
+  def schedule(self: Self, all_txns: list[Transaction]) -> list[Transaction]:
+    txns = compress_workload(all_txns, self.family)
+    return self.underlying.schedule(txns)
+
 if __name__ == "__main__":
-  addr_space = list(range(2**15))
-  workload = list(make_workload(addr_space, 128, 16, 0.0, 0.5))
+  addr_space = list(range(2**20))
+  workload = list(make_workload(addr_space, 256, 16, 0.6, 0.05))
+  family = make_parallel_bloom_filter_family(1024, 4)
+
   greedy = GreedyScheduler()
   print(len(greedy.schedule(workload)))
+
+  greedy_c = CompressedScheduler(greedy, family)
+  print(len(greedy_c.schedule(workload)))
+
   tournament = TournamentScheduler()
   print(len(tournament.schedule(workload)))
+
+  tournament_c = CompressedScheduler(tournament, family)
+  print(len(tournament_c.schedule(workload)))

@@ -43,7 +43,7 @@ class BloomFilter(Set):
   def __and__(self, other: Self) -> Self:
     assert isinstance(other, BloomFilter)
     assert all((f1 == f2 for f1, f2 in zip(self.hash_fns, other.hash_fns)))
-    assert self.len() == other.len()
+    assert len(self.bits) == len(other.bits)
     return BloomFilter(bits=self.bits & other.bits, hash_fns=self.hash_fns)
 
   def __or__(self, other: Self) -> Self:
@@ -60,6 +60,9 @@ class BloomFilter(Set):
 
   def __copy__(self) -> Self:
     return BloomFilter(bits=copy(self.bits), hash_fns=self.hash_fns)
+
+  def __bool__(self) -> bool:
+    return any(bit for bit in self.bits)
 
 
 @dataclass
@@ -91,6 +94,9 @@ class ParallelBloomFilter(Set):
 
   def __copy__(self) -> Self:
     return ParallelBloomFilter(parts=[part.copy() for part in self.parts])
+
+  def __bool__(self) -> bool:
+    return bool(self.parts[0])  # enough to check just one
 
 
 def make_hash_function(buckets):
