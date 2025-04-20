@@ -27,6 +27,11 @@ class Set(abc.ABC):
   def __copy__(self) -> Self:
     raise NotImplementedError
 
+  def __bool__(self) -> bool:
+    raise NotImplementedError
+
+  def estimate_contents(self, addr_space: list[int]) -> list[int]:
+    raise NotImplementedError
 
 @dataclass
 class BloomFilter(Set):
@@ -64,6 +69,8 @@ class BloomFilter(Set):
   def __bool__(self) -> bool:
     return any(bit for bit in self.bits)
 
+  def estimate_contents(self, addr_space: list[int]) -> list[int]:
+    return [elem for elem in addr_space if elem in self]
 
 @dataclass
 class ParallelBloomFilter(Set):
@@ -98,14 +105,14 @@ class ParallelBloomFilter(Set):
   def __bool__(self) -> bool:
     return bool(self.parts[0])  # enough to check just one
 
+  def estimate_contents(self, addr_space: list[int]) -> list[int]:
+    return [elem for elem in addr_space if elem in self]
 
 def make_hash_function(buckets):
-  # TODO: actually make this more reasonable
-  mult = (random.randint(2**40, 2**60))*2 + 1
+  mult = random.randint(2**40, 2**50)*2 + 1
   def f(x):
-    return (x * mult) // 2**30 % buckets
+    return (x * mult) // 2**35 % buckets
   return f
-
 
 def make_bloom_filter_family(len_signature: int, num_hashes: int) -> Callable[[], BloomFilter]:
   hash_fns = [make_hash_function(len_signature) for _ in range(num_hashes)]
@@ -126,3 +133,22 @@ def make_parallel_bloom_filter_family(len_signature: int, num_partitions: int) -
 def make_parallel_bloom_filter(len_signature: int, num_partitions: int) -> ParallelBloomFilter:
   return make_parallel_bloom_filter_family(len_signature, num_partitions)()
 
+
+import random
+import itertools
+if __name__ == "__main__":
+  addr_space = list(range(2**20))
+  H = make_parallel_bloom_filter(1024, 4)
+  hashes = [H.parts[i].hash_fns[0] for i in range(4)]
+  ref = set()
+  xs = []
+  ys = []
+  for i in itertools.count():
+    x = random.choice(addr_space)
+    H.add(x)
+    ref.add(x)
+    est = set(H.estimate_contents(addr_space))
+    extra = est.difference(ref)
+    print(i, len(extra))
+    xs.append(i)
+    ys.append(len(extra))

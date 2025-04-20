@@ -30,9 +30,9 @@ def get_false_pos_rate(addr_space: list[int], num_elems: int, len_signature: int
   return false_pos_rate
 
 def get_data_for_config(len_signature: int, num_partitions: int) -> Tuple[np.array, np.array, str]:
-  max_log = 16
+  max_log = 18
   len_addr_space = 2**max_log
-  num_elems_arr = np.rint(2**np.arange(0, 11, 1.0/4.0)).astype(int)
+  num_elems_arr = np.rint(2**np.arange(0, 12, 1.0/4.0)).astype(int)
   addr_space = list(range(len_addr_space))
   random.shuffle(addr_space)
 

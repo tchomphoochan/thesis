@@ -24,6 +24,7 @@ class TournamentScheduler(Scheduler):
   def schedule(_: Self, all_txns: list[Transaction]) -> list[Transaction]:
     txns = copy.copy(all_txns)
     while len(txns) > 1:
+      assert len(txns) % 2 == 0
       new_txns = []
       for (ts1, ts2) in itertools.batched(txns, 2):
         new_txn = ts1.merge(ts2) if ts1.compat(ts2) else ts1
@@ -44,8 +45,8 @@ class CompressedScheduler(Scheduler):
     return self.underlying.schedule(txns)
 
 if __name__ == "__main__":
-  addr_space = list(range(2**20))
-  workload = list(make_workload(addr_space, 256, 16, 0.6, 0.05))
+  addr_space = list(range(2**24))
+  workload = list(make_workload(addr_space, 256, 16, 0.0, 0.5))
   family = make_parallel_bloom_filter_family(1024, 4)
 
   greedy = GreedyScheduler()
