@@ -103,7 +103,7 @@ class ParallelBloomFilter(Set):
     return ParallelBloomFilter(parts=[part.copy() for part in self.parts])
 
   def __bool__(self) -> bool:
-    return bool(self.parts[0])  # enough to check just one
+    return all(bool(part) for part in self.parts)
 
   def estimate_contents(self, addr_space: list[int]) -> list[int]:
     return [elem for elem in addr_space if elem in self]
