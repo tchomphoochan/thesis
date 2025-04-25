@@ -44,6 +44,8 @@ def get_num_txns_scheduled(mem_size: float, zipf_param: float, write_prob: float
 def graph_scale_num_objs():
 
   for workload_type, omega in [('Read-heavy', 0.05), ('Write-heavy', 0.50)]:
+    filename = f"output-scheduler-{workload_type.lower()}-{NUM_TXNS}x{NUM_OBJS_PER_TXN}.svg"
+    print(f"Rendering: {filename}", file=sys.stderr)
     begin = time.time()
     plt.figure()
     plt.title(f"{workload_type} workload: {NUM_OBJS_PER_TXN} objs/txn, {omega*100:.0f}% probability of writing")
@@ -65,8 +67,8 @@ def graph_scale_num_objs():
 
     plt.legend()
     end = time.time()
-    print(f"Took {end-begin} seconds to render {workload_type}", file=sys.stderr)
-    plt.savefig(f"output-scheduler-{workload_type}.svg")
+    print(f"Done: {filename} {end-begin} seconds", file=sys.stderr)
+    plt.savefig(filename)
 
 if __name__ == "__main__":
   graph_scale_num_objs()
