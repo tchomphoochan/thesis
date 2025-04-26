@@ -1,5 +1,11 @@
 #pragma once
 
+/***
+pmhw.h was designed to be for C, not C++, so whenever we have
+the chance to move away from Connectal, we can opt for a pure C
+implementation. Right now, we begrudgingly use C++ (pmhw.cpp).
+***/
+
 #include <stdint.h>
 
 #ifdef __cplusplus
