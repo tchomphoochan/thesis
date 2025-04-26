@@ -1,12 +1,14 @@
 #pragma once
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #ifndef __cpp_contracts
 #include <assert.h>
-void contract_assert(bool expr) {
+static inline void contract_assert(bool expr) {
   assert(expr);
 }
 #endif

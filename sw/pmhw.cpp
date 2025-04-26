@@ -23,7 +23,7 @@ public:
   std::queue<PmConfigValues> configVals;
   std::mutex mutex;
   std::condition_variable cv;
-  void getPmConfig(PmConfigValues pmc) {
+  void getPmConfig(PmConfigValues m) {
     std::unique_lock guard(mutex);
     configVals.push(m);
     cv.notify_all();
