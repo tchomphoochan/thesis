@@ -20,6 +20,14 @@ Connectal-required wrappers
 
 class DebugIndication : public DebugIndicationWrapper {
 public:
+  std::queue<PmConfigValues> configVals;
+  std::mutex mutex;
+  std::condition_variable cv;
+  void getPmConfig(PmConfigValues pmc) {
+    std::unique_lock guard(mutex);
+    configVals.push(m);
+    cv.notify_all();
+  }
   void transactionRenamed(DebugMessage m) {
     DEBUG_LOG("T#" << m.tid << " renamed on cycle " << m.endTime);
   }
@@ -29,7 +37,7 @@ public:
   void transactionFreed(DebugMessage m) {
     DEBUG_LOG("T#" << m.tid << " freed on cycle " << m.endTime);
   }
-  DebugIndication(int id) : DebugIndicationWrapper(id) {}
+  DebugIndication(int id) : DebugIndicationWrapper(id), configVals(), mutex(), cv() {}
 };
 
 class WorkIndication : public WorkIndicationWrapper {
@@ -77,21 +85,27 @@ pmhw_retval_t pmhw_reset() {
 pmhw_retval_t pmhw_get_config(pmhw_config_t *ret) {
   contract_assert(pmhw.initialized);
 
-  // TODO: actually aet config from hardware directly
-  ret->logNumberRenamerThreads      = 2;
-  ret->logNumberShards              = 2;
-  ret->logSizeShard                 = 6;
-  ret->logNumberHashes              = 6;
-  ret->logNumberComparators         = 1;
-  ret->logNumberSchedulingRounds    = 1;
-  ret->logNumberPuppets             = 3;
-  ret->numberAddressOffsetBits      = 6;
-  ret->logSizeRenamerBuffer         = 7;
-  ret->useSimulatedTxnDriver        = false;
-  ret->useSimulatedPuppets          = false;
-  ret->simulatedPuppetsClockPeriod  = 20;
+  std::unique_lock guard(pmhw.debugInd->mutex);
+  pmhw.debugInd->cv.wait(guard, [] {
+    return !pmhw.debugInd->configVals.empty();
+  });
+  auto configVals = pmhw.debugInd->configVals.front();
+  pmhw.debugInd->configVals.pop();
 
-  return PMHW_PARTIAL;
+  ret->logNumberRenamerThreads      = configVals.logNumberRenamerThreads;
+  ret->logNumberShards              = configVals.logNumberShards;
+  ret->logSizeShard                 = configVals.logSizeShard;
+  ret->logNumberHashes              = configVals.logNumberHashes;
+  ret->logNumberComparators         = configVals.logNumberComparators;
+  ret->logNumberSchedulingRounds    = configVals.logNumberSchedulingRounds;
+  ret->logNumberPuppets             = configVals.logNumberPuppets;
+  ret->numberAddressOffsetBits      = configVals.numberAddressOffsetBits;
+  ret->logSizeRenamerBuffer         = configVals.logSizeRenamerBuffer;
+  ret->useSimulatedTxnDriver        = configVals.useSimulatedTxnDriver;
+  ret->useSimulatedPuppets          = configVals.useSimulatedPuppets;
+  ret->simulatedPuppetsClockPeriod  = configVals.simulatedPuppetsClockPeriod;
+
+  return PMHW_OK;
 }
 
 pmhw_retval_t pmhw_set_config(const pmhw_config_t *cfg) {
