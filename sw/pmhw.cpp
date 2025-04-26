@@ -84,6 +84,7 @@ pmhw_retval_t pmhw_reset() {
 
 pmhw_retval_t pmhw_get_config(pmhw_config_t *ret) {
   contract_assert(pmhw.initialized);
+  pmhw.setup->fetchConfig();
 
   std::unique_lock guard(pmhw.debugInd->mutex);
   pmhw.debugInd->cv.wait(guard, [] {
