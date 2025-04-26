@@ -41,7 +41,7 @@ generate:
 	rm -f $(TMP_PMHW_DIR)/main.cpp
 	rm -f $(TMP_PMHW_DIR)/db.cpp
 	awk '{ \
-	  if ($$0 == "CPPFILES += db.cpp" || $$0 == "CPPFILES += main.cpp") { print "#" $$0 } \
+	  if ($$1 == "CPPFILES" && $$2 == "+=" && ($$3 ~ /^db\.cpp/ || $$3 ~ /^main\.cpp/)) { print "#" $$0 } \
 	  else { print $$0 } \
 	}' $(PMHW_DIR)/Makefile > $(TMP_PMHW_DIR)/Makefile
 	# Run all necessary make targets in Puppetmaster
