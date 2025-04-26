@@ -4,6 +4,13 @@
 extern "C" {
 #endif
 
+#ifndef __cpp_contracts
+#include <assert.h>
+void contract_assert(bool expr) {
+  assert(expr);
+}
+#endif
+
 /*
 Maximum number of objects per transacation
 */
@@ -92,5 +99,5 @@ Get a scheduled transaction from Puppetmaster. Returns the transaction ID.
 pmhw_retval_t pmhw_poll_scheduled(pmhw_txn_t *ret);
 
 #ifdef __cplusplus
-#define }
+}
 #endif
