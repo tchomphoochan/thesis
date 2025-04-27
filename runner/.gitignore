@@ -3,3 +3,5 @@ bin/
 include/
 generated/
 tmp/
+SWSOCK*
+*.out
