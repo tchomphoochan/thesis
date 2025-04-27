@@ -1,11 +1,6 @@
 #pragma once
 
-/***
-pmhw.h was designed to be for C, not C++, so whenever we have
-the chance to move away from Connectal, we can opt for a pure C
-implementation. Right now, we begrudgingly use C++ (pmhw.cpp).
-***/
-
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -104,7 +99,7 @@ pmhw_retval_t pmhw_schedule(const pmhw_txn_t *txn);
 /*
 Get a scheduled transaction from Puppetmaster. Returns the transaction ID.
 */
-pmhw_retval_t pmhw_poll_scheduled(pmhw_txn_t *ret);
+pmhw_retval_t pmhw_poll_scheduled(int *ret);
 
 #ifdef __cplusplus
 }

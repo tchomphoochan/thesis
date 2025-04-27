@@ -1,6 +1,4 @@
-src/
 bin/
-include/
 generated/
 tmp/
 SWSOCK*
