@@ -2,6 +2,7 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <chrono>
 
 #include "pmhw.h"
 
@@ -45,14 +46,12 @@ public:
   std::queue<WorkMessage> msgs;
   std::mutex mutex;
   std::condition_variable cv;
-
   void startWork(WorkMessage m) {
     DEBUG_LOG("T#" << m.tid << " scheduled on cycle " << m.cycle << " for P#" << m.pid);
-    std::unique_lock workMsgGuard(mutex);
+    std::unique_lock guard(mutex);
     msgs.push(m);
     cv.notify_all();
   }
-
   WorkIndication(int id) : WorkIndicationWrapper(id), msgs(), mutex(), cv() {}
 };
 
@@ -61,8 +60,10 @@ Singleton representing active Puppetmaster instance
 */
 static struct pmhw_singleton_t {
   bool initialized = false;
+  pmhw_config_t cached_config;
   std::unique_ptr<HostSetupRequestProxy> setup;
   std::unique_ptr<HostTxnRequestProxy> txn;
+  std::unique_ptr<HostWorkDoneProxy> workDone;
   std::unique_ptr<DebugIndication> debugInd;
   std::unique_ptr<WorkIndication> workInd;
 } pmhw;
@@ -75,9 +76,9 @@ pmhw_retval_t pmhw_reset() {
   pmhw.initialized = true;
   pmhw.setup = std::make_unique<HostSetupRequestProxy>(IfcNames_HostSetupRequestS2H);
   pmhw.txn = std::make_unique<HostTxnRequestProxy>(IfcNames_HostTxnRequestS2H);
+  pmhw.workDone = std::make_unique<HostWorkDoneProxy>(IfcNames_HostWorkDoneS2H);
   pmhw.debugInd = std::make_unique<DebugIndication>(IfcNames_DebugIndicationH2S);
   pmhw.workInd = std::make_unique<WorkIndication>(IfcNames_WorkIndicationH2S);
-  pmhw.setup->stopFakeTxnDriver();
   pmhw.txn->clearState();
   return PMHW_OK;
 }
@@ -93,19 +94,20 @@ pmhw_retval_t pmhw_get_config(pmhw_config_t *ret) {
   auto configVals = pmhw.debugInd->configVals.front();
   pmhw.debugInd->configVals.pop();
 
-  ret->logNumberRenamerThreads      = configVals.logNumberRenamerThreads;
-  ret->logNumberShards              = configVals.logNumberShards;
-  ret->logSizeShard                 = configVals.logSizeShard;
-  ret->logNumberHashes              = configVals.logNumberHashes;
-  ret->logNumberComparators         = configVals.logNumberComparators;
-  ret->logNumberSchedulingRounds    = configVals.logNumberSchedulingRounds;
-  ret->logNumberPuppets             = configVals.logNumberPuppets;
-  ret->numberAddressOffsetBits      = configVals.numberAddressOffsetBits;
-  ret->logSizeRenamerBuffer         = configVals.logSizeRenamerBuffer;
-  ret->useSimulatedTxnDriver        = configVals.useSimulatedTxnDriver;
-  ret->useSimulatedPuppets          = configVals.useSimulatedPuppets;
-  ret->simulatedPuppetsClockPeriod  = configVals.simulatedPuppetsClockPeriod;
+  ret->logNumberRenamerThreads = configVals.logNumberRenamerThreads;
+  ret->logNumberShards = configVals.logNumberShards;
+  ret->logSizeShard = configVals.logSizeShard;
+  ret->logNumberHashes = configVals.logNumberHashes;
+  ret->logNumberComparators = configVals.logNumberComparators;
+  ret->logNumberSchedulingRounds = configVals.logNumberSchedulingRounds;
+  ret->logNumberPuppets = configVals.logNumberPuppets;
+  ret->numberAddressOffsetBits = configVals.numberAddressOffsetBits;
+  ret->logSizeRenamerBuffer = configVals.logSizeRenamerBuffer;
+  ret->useSimulatedTxnDriver = configVals.useSimulatedTxnDriver;
+  ret->useSimulatedPuppets = configVals.useSimulatedPuppets;
+  ret->simulatedPuppetsClockPeriod = configVals.simulatedPuppetsClockPeriod;
 
+  pmhw.cached_config = *ret;
   return PMHW_OK;
 }
 
@@ -113,11 +115,14 @@ pmhw_retval_t pmhw_set_config(const pmhw_config_t *cfg) {
   contract_assert(pmhw.initialized);
   pmhw.setup->setTxnDriver(cfg->useSimulatedTxnDriver);
   pmhw.setup->setSimulatedPuppets(cfg->useSimulatedPuppets, cfg->simulatedPuppetsClockPeriod);
+  pmhw.cached_config = *cfg;
   return PMHW_PARTIAL;
 }
 
 pmhw_retval_t pmhw_schedule(const pmhw_txn_t *txn) {
   contract_assert(pmhw.initialized);
+  contract_assert(txn->numReadObjs <= PMHW_MAX_TXN_READ_OBJS);
+  contract_assert(txn->numWriteObjs <= PMHW_MAX_TXN_WRITE_OBJS);
   pmhw.txn->enqueueTransaction(
     txn->transactionId,
     txn->auxData,
@@ -126,18 +131,46 @@ pmhw_retval_t pmhw_schedule(const pmhw_txn_t *txn) {
     txn->readObjIds[4], txn->readObjIds[5], txn->readObjIds[6], txn->readObjIds[7],
     txn->numWriteObjs,
     txn->writeObjIds[0], txn->writeObjIds[1], txn->writeObjIds[2], txn->writeObjIds[3],
-    txn->writeObjIds[4], txn->writeObjIds[5], txn->writeObjIds[6], txn->writeObjIds[7]);
+    txn->writeObjIds[4], txn->writeObjIds[5], txn->writeObjIds[6], txn->writeObjIds[7]
+  );
   return PMHW_OK;
 }
 
-pmhw_retval_t pmhw_poll_scheduled(int *ret) {
+pmhw_retval_t pmhw_trigger_simulated_driver() {
   contract_assert(pmhw.initialized);
-  std::unique_lock workMsgGuard(pmhw.workInd->mutex);
-  pmhw.workInd->cv.wait(workMsgGuard, [] {
+  contract_assert(pmhw.cached_config.useSimulatedTxnDriver);
+  pmhw.txn->trigger();
+  return PMHW_OK;
+}
+
+pmhw_retval_t pmhw_force_trigger_scheduling() {
+  contract_assert(pmhw.initialized);
+  pmhw.txn->clearState();
+  return PMHW_OK;
+}
+
+pmhw_retval_t pmhw_poll_scheduled(int *transactionId, int *puppetId) {
+  contract_assert(pmhw.initialized);
+  contract_assert(!pmhw.cached_config.useSimulatedPuppets);
+
+  std::unique_lock guard(pmhw.workInd->mutex);
+  if (!pmhw.workInd->cv.wait_for(guard, std::chrono::milliseconds(100), [] {
     return !pmhw.workInd->msgs.empty();
-  });
-  *ret = pmhw.workInd->msgs.front().tid;
+  })) {
+    return PMHW_TIMEOUT;
+  }
+
+  *transactionId = pmhw.workInd->msgs.front().tid;
+  *puppetId = pmhw.workInd->msgs.front().pid;
   pmhw.workInd->msgs.pop();
+  return PMHW_OK;
+}
+
+pmhw_retval_t pmhw_report_done(int transactionId, int puppetId) {
+  (void)transactionId; // unused
+  contract_assert(pmhw.initialized);
+  contract_assert(!pmhw.cached_config.useSimulatedPuppets);
+  pmhw.workDone->workDone(puppetId);
   return PMHW_OK;
 }
 

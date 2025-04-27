@@ -3,3 +3,6 @@ generated/
 tmp/
 SWSOCK*
 *.out
+*.err
+*.txt
+*.csv

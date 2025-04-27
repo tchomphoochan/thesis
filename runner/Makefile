@@ -1,3 +1,4 @@
+# Require variables
 ifndef CONNECTALDIR
 $(error CONNECTALDIR variable is not defined, aborting build)
 endif
@@ -7,22 +8,42 @@ endif
 ifndef PMHW_DIR
 $(error PMHW_DIR variable is not defined, aborting build)
 endif
+ifndef SIM
+$(error SIM variable is not defined (should be 0 or 1))
+endif
 
+# Directories
 TMP_PMHW_DIR = ./tmp/pmhw
-GENERATED_INCLUDE = ./generated/include
-GENERATED_OBJ = ./generated/obj
+GENERATED_ROOT = ./generated
+GENERATED_INCLUDE = $(GENERATED_ROOT)/include
+GENERATED_OBJ = $(GENERATED_ROOT)/obj
 
-SOURCES=$(wildcard src/*) $(GENERATED_OBJ)/connectal.so
-INCLUDE_DIR=./include
+# Sources and includes
+INCLUDE_DIR = ./include
+SOURCE_DIR = ./src
+OBJ_DIR = ./obj
+BIN_DIR = ./bin
+SOURCES = $(SOURCE_DIR)/main.c
+OBJECTS = 
 
-CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE)
+ifeq ($(SIM),1)
+SOURCES += $(SOURCE_DIR)/pmhw_sim.c
+else
+SOURCES += $(SOURCE_DIR)/pmhw.cpp
+SOURCES += $(GENERATED_OBJ)/connectal.so
+endif
 
+CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g
+CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g
+
+# Executable
 EXE = ./bin/main
 
 .PHONY: all
 all: $(EXE)
 
 $(EXE): $(SOURCES)
+	# Create output directory
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) $(SOURCES) -o $(EXE)
 
@@ -65,29 +86,38 @@ make-tmp:
 	mkdir -p $(GENERATED_INCLUDE)
 	mkdir -p $(GENERATED_OBJ)
 	mkdir -p $(TMP_PMHW_DIR)
-	# Copy Puppetmaster source but remove main.cpp
+	# Copy Puppetmaster source but remove code in the root directory
 	cp -r $(PMHW_DIR)/* $(TMP_PMHW_DIR)
-	rm -f $(TMP_PMHW_DIR)/main.cpp
-	rm -f $(TMP_PMHW_DIR)/db.cpp
+	rm -f $(TMP_PMHW_DIR)/*.cpp
+	# Remove mentions in the Makefile too
 	awk '{ \
 	  if ($$1 == "CPPFILES" && $$2 == "+=" && ($$3 ~ /^db\.cpp/ || $$3 ~ /^main\.cpp/)) { print "#" $$0 } \
 	  else { print $$0 } \
 	}' $(PMHW_DIR)/Makefile > $(TMP_PMHW_DIR)/Makefile
+	# Clear out any board folder if it exists 
+	rm -fR $(TMP_PMHW_DIR)/$(BOARD)
 
 .PHONY: run
 ifneq ($(BOARD), verilator)
 run: $(EXE)
-	NOPROGRAM=1 $(EXE)
+	# Run the executable with NOPROGRAM if not verilator
+	NOPROGRAM=1 $(EXE) transactions.csv 20 2> err.txt | tee out.txt
+	python3 analyze.py transactions.csv out.txt 8
 else
 run: $(EXE)
-	$(EXE)
+	# Run normally if verilator
+	$(EXE) transactions.csv 20 2> err.txt | tee out.txt
+	python3 analyze.py transactions.csv out.txt 8
 endif
 
 .PHONY: clean
 clean:
+	# Clean build artifacts
 	rm -fR bin obj tmp
 	rm -f SWSOCK* *.out
 
 .PHONY: mrproper
 mrproper: clean
-	rm -fR $(GENERATED_INCLUDE) $(GENERATED_OBJ)
+	# Deep clean: also remove generated root
+	rm -fR $(GENERATED_ROOT)
+
