@@ -42,19 +42,26 @@ ifeq ($(SIM),2)
 SOURCES += $(SOURCE_DIR)/pmhw_sim_bloom.c
 endif
 
+CC = gcc
+CXX = g++
 CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g -DWORK_SIMULATION_US=$(WORK_SIMULATION_US)
 CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g -DWORK_SIMULATION_US=$(WORK_SIMULATION_US)
 
 # Executable
 EXE = ./bin/main
+ANALYZE_EXE = ./bin/analyze
 
 .PHONY: all
-all: $(EXE)
+all: $(EXE) $(ANALYZE_EXE)
 
 $(EXE): $(SOURCES)
 	# Create output directory
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) $(SOURCES) -o $(EXE)
+
+$(ANALYZE_EXE): ./src/analyze.c
+	mkdir -p bin
+	$(CC) $(CFLAGS) ./src/analyze.c -o $(ANALYZE_EXE)
 
 $(GENERATED_OBJ)/connectal.so:
 	$(error Connectal-related files have not been generated. Run "make generate" first.)
@@ -113,14 +120,14 @@ run:
 	make all
 	# Run the executable with NOPROGRAM if not verilator
 	NOPROGRAM=1 $(EXE) transactions.csv 20 2> err.txt > out.txt
-	python3 analyze.py transactions.csv out.txt 8 $(WORK_SIMULATION_US)
+	./bin/analyze transactions.csv out.txt 8 $(WORK_SIMULATION_US)
 else
 run:
 	make clean
 	make all
 	# Run normally if verilator
 	$(EXE) transactions.csv 20 2> err.txt > out.txt
-	python3 analyze.py transactions.csv out.txt 8 $(WORK_SIMULATION_US)
+	./bin/analyze transactions.csv out.txt 8 $(WORK_SIMULATION_US)
 endif
 
 .PHONY: clean
