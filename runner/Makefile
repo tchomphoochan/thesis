@@ -26,11 +26,17 @@ BIN_DIR = ./bin
 SOURCES = $(SOURCE_DIR)/main.c
 OBJECTS = 
 
-ifeq ($(SIM),1)
-SOURCES += $(SOURCE_DIR)/pmhw_sim.c
-else
+ifeq ($(SIM),0)
 SOURCES += $(SOURCE_DIR)/pmhw.cpp
 SOURCES += $(GENERATED_OBJ)/connectal.so
+endif
+
+ifeq ($(SIM),1)
+SOURCES += $(SOURCE_DIR)/pmhw_sim.c
+endif
+
+ifeq ($(SIM),2)
+SOURCES += $(SOURCE_DIR)/pmhw_sim_bloom.c
 endif
 
 CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g
@@ -101,12 +107,12 @@ make-tmp:
 ifneq ($(BOARD), verilator)
 run: $(EXE)
 	# Run the executable with NOPROGRAM if not verilator
-	NOPROGRAM=1 $(EXE) transactions.csv 20 2> err.txt | tee out.txt
+	NOPROGRAM=1 $(EXE) transactions.csv 20 2> err.txt > out.txt
 	python3 analyze.py transactions.csv out.txt 8
 else
 run: $(EXE)
 	# Run normally if verilator
-	$(EXE) transactions.csv 20 2> err.txt | tee out.txt
+	$(EXE) transactions.csv 20 2> err.txt > out.txt
 	python3 analyze.py transactions.csv out.txt 8
 endif
 
