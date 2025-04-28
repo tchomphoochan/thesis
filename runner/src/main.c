@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <time.h>
-
+#include <x86intrin.h> // for __rdtsc()
 #include <sched.h>
 
 #include "pmhw.h"
@@ -60,6 +60,28 @@ do { \
 } while (0)
 #endif
 #define CHECK_OK(retcode) CHECK_EXPECTED(retcode, PMHW_OK)
+
+/*
+Timing utilities
+*/
+static double cpu_ghz = 0.0;
+static uint64_t base_rdtsc = 0;
+
+void initialize_timer() {
+  struct timespec ts_start, ts_end;
+  uint64_t start = __rdtsc();
+  clock_gettime(CLOCK_MONOTONIC, &ts_start);
+  usleep(100000); // Sleep 100ms
+  clock_gettime(CLOCK_MONOTONIC, &ts_end);
+  uint64_t end = __rdtsc();
+  double elapsed = (ts_end.tv_sec - ts_start.tv_sec) + (ts_end.tv_nsec - ts_start.tv_nsec) / 1e9;
+  cpu_ghz = (end - start) / (elapsed * 1e9);
+  base_rdtsc = __rdtsc();
+}
+
+double now() {
+  return (double)(__rdtsc() - base_rdtsc) / (cpu_ghz * 1e9);
+}
 
 /*
 Event tracking
@@ -129,16 +151,6 @@ Global state
 volatile int keep_polling = 1;
 worker_t *puppets;
 int num_puppets;
-struct timespec start_time;
-
-/*
-Timing utilities
-*/
-double now() {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (ts.tv_sec - start_time.tv_sec) + (ts.tv_nsec - start_time.tv_nsec) / 1e9;
-}
 
 /*
 CPU pinning helper
@@ -251,7 +263,7 @@ void *client_thread(void *arg) {
   (void)arg;
 
   pin_thread_to_core(1);
-  clock_gettime(CLOCK_MONOTONIC, &start_time);
+  initialize_timer();
 
   for (int i = 0; i < num_txns; ++i) {
     record_event(EVENT_SUBMIT, now(), txn_list[i].transactionId, -1);
