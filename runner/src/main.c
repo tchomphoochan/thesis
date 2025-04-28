@@ -15,7 +15,9 @@
 /*
 Configuration
 */
-#define WORK_SIMULATION_US 10    // Simulate 10 microseconds per transaction
+#ifndef WORK_SIMULATION_US
+#error "Must define WORK_SIMULATION_US"
+#endif
 #define TEST_TIMEOUT_SEC 20      // Timeout in seconds
 
 /*

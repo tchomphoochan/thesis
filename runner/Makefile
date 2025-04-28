@@ -9,7 +9,10 @@ ifndef PMHW_DIR
 $(error PMHW_DIR variable is not defined, aborting build)
 endif
 ifndef SIM
-$(error SIM variable is not defined (should be 0 or 1))
+$(error SIM variable is not defined (should be 0 or 1 or 2))
+endif
+ifndef WORK_SIMULATION_US
+$(error WORK_SIMULATION_US variable is not defined, aborting build)
 endif
 
 # Directories
@@ -39,8 +42,8 @@ ifeq ($(SIM),2)
 SOURCES += $(SOURCE_DIR)/pmhw_sim_bloom.c
 endif
 
-CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g
-CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g
+CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g -DWORK_SIMULATION_US=$(WORK_SIMULATION_US)
+CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_INCLUDE) -O2 -Wall -pthread -g -DWORK_SIMULATION_US=$(WORK_SIMULATION_US)
 
 # Executable
 EXE = ./bin/main
@@ -105,15 +108,19 @@ make-tmp:
 
 .PHONY: run
 ifneq ($(BOARD), verilator)
-run: $(EXE)
+run:
+	make clean
+	make all
 	# Run the executable with NOPROGRAM if not verilator
 	NOPROGRAM=1 $(EXE) transactions.csv 20 2> err.txt > out.txt
-	python3 analyze.py transactions.csv out.txt 8
+	python3 analyze.py transactions.csv out.txt 8 $(WORK_SIMULATION_US)
 else
-run: $(EXE)
+run:
+	make clean
+	make all
 	# Run normally if verilator
 	$(EXE) transactions.csv 20 2> err.txt > out.txt
-	python3 analyze.py transactions.csv out.txt 8
+	python3 analyze.py transactions.csv out.txt 8 $(WORK_SIMULATION_US)
 endif
 
 .PHONY: clean

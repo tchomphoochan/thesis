@@ -86,7 +86,7 @@ def conflict(txnA, txnB):
 
 # --- Consistency + Metric Checks ---
 
-def check_consistency(txn_map, events, num_puppets):
+def check_consistency(txn_map, events, num_puppets, work_us):
     submitted = set()
     scheduled = set()
     done = set()
@@ -164,13 +164,21 @@ def check_consistency(txn_map, events, num_puppets):
     if total_submitted > 1:
         submit_duration = max(submit_times) - min(submit_times)
         client_throughput = total_submitted / submit_duration
+        ideal_throughput = num_puppets / (work_us * 1e-6)
+        efficiency = client_throughput / ideal_throughput
         print(f"Client submission rate: {client_throughput/1e6:.2f} million transactions/sec")
+        print(f"Ideal rate            : {ideal_throughput/1e6:.2f} million transactions/sec")
+        print(f"Efficiency            : {efficiency*100:.1f}% ({1/efficiency:.1f}x)")
     else:
         print("Client submission rate: N/A")
 
     if last_done_time is not None and first_submit_time is not None:
         total_wall_time = last_done_time - first_submit_time
+        ideal_time = (work_us * 1e-6) * len(txn_map) / num_puppets
+        efficiency = ideal_time / total_wall_time
         print(f"Total wall time: {total_wall_time:.6f} seconds")
+        print(f"Ideal time     : {ideal_time:.6f} seconds")
+        print(f"Efficiency     : {efficiency*100:.1f}% ({1/efficiency:.1f}x)")
         print("Puppet utilization:")
         for puppet_id in range(num_puppets):
             busy = puppet_busy_time.get(puppet_id, 0.0)
@@ -181,8 +189,8 @@ def check_consistency(txn_map, events, num_puppets):
 # --- Main Entrypoint ---
 
 def main():
-    if len(sys.argv) != 4:
-        print(f"Usage: {sys.argv[0]} <transactions.csv> <log.txt> <num_puppets>")
+    if len(sys.argv) != 5:
+        print(f"Usage: {sys.argv[0]} <transactions.csv> <log.txt> <num_puppets> <work_us>")
         sys.exit(1)
 
     with open(sys.argv[1]) as csvf:
@@ -191,8 +199,9 @@ def main():
         events = parse_log(logf)
 
     num_puppets = int(sys.argv[3])
+    work_us = int(sys.argv[4])
 
-    check_consistency(txn_map, events, num_puppets)
+    check_consistency(txn_map, events, num_puppets, work_us)
 
 # --- Test Cases ---
 
