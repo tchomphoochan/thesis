@@ -411,18 +411,16 @@ int main(int argc, char *argv[]) {
 
   // Every second, check whether everything has finished so we can break out early
   bool done = false;
-  for (double second = 0; second < (int) TEST_TIMEOUT_SEC; second += 1e-6) {
+  for (int second = 0; second < (int) TEST_TIMEOUT_SEC; second++) {
     int sum = 0;
     for (int i = 0; i < num_puppets; ++i) {
       sum += puppets[i].completed_txns;
     }
     if (sum == num_txns) {
       done = true;
-      double total = now();
-      fprintf(stderr, "Finished in %lf seconds.\n", total);
       break;
     }
-    usleep(1);
+    sleep(1);
   }
 
   // Just crash
