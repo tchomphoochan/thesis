@@ -67,6 +67,10 @@ $(GENERATED_OBJ)/connectal.so:
 	$(error Connectal-related files have not been generated. Run "make generate" first.)
 
 .PHONY: generate
+ifneq ($(SIM), 0)
+generate:
+	$(error "It does not make sense to generate Connectal files when SIM != 0")
+else
 ifneq ($(BOARD), verilator)
 generate: | make-tmp
 	# Run make-tmp first (see above) to generate the files
@@ -93,6 +97,7 @@ generate: | make-tmp
 	cp $(TMP_PMHW_DIR)/$(BOARD)/bin/vlsim $(GENERATED_OBJ)
 	cp $(TMP_PMHW_DIR)/$(BOARD)/bin/libconnectal-sim.so $(GENERATED_OBJ)
 	cp $(CONNECTALDIR)/cpp/*.h $(GENERATED_INCLUDE)
+endif
 endif
 
 .PHONY: make-tmp
