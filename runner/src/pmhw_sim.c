@@ -139,7 +139,7 @@ static void mark_puppet_free(int puppet_id) {
 extern void pin_thread_to_core(int core_id);
 
 static void *scheduler_loop(void *arg) {
-  pin_thread_to_core(0);
+  pin_thread_to_core(2);
 
   (void)arg;
   while (scheduler_running) {
@@ -206,7 +206,6 @@ static void *scheduler_loop(void *arg) {
       pthread_mutex_unlock(&pending_mutex);
     }
 
-    usleep(1); // Light busy-wait
   }
   return NULL;
 }
@@ -262,7 +261,6 @@ pmhw_retval_t pmhw_schedule(const pmhw_txn_t *txn) {
       return PMHW_OK;
     }
     pthread_mutex_unlock(&pending_mutex);
-    usleep(1);
   }
 }
 

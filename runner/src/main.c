@@ -187,7 +187,7 @@ It waits until it sees work assigned to it then simulates working for some micro
 void *puppet_worker_thread(void *arg) {
   worker_t *worker = (worker_t *)arg;
 
-  pin_thread_to_core(3 + worker->puppetId);
+  pin_thread_to_core(4 + worker->puppetId);
 
   while (1) {
     // Busy-wait loop for work assignment
@@ -230,7 +230,7 @@ Whenever it sees a result, it assigns it to the correct worker.
 void *poller_thread(void *arg) {
   (void)arg;
 
-  pin_thread_to_core(2);
+  pin_thread_to_core(3);
 
   while (keep_polling) {
     int txnId = 0, puppetId = 0;
@@ -335,6 +335,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Usage: %s <transactions.csv> <period>\n", argv[0]);
     exit(1);
   }
+  pin_thread_to_core(0);
 
   /*
   Hardware setup
