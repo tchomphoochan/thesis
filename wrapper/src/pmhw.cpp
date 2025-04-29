@@ -45,14 +45,12 @@ class WorkIndication : public WorkIndicationWrapper {
 public:
   std::queue<WorkMessage> msgs;
   std::mutex mutex;
-  std::condition_variable cv;
   void startWork(WorkMessage m) {
     DEBUG_LOG("T#" << m.tid << " scheduled on cycle " << m.cycle << " for P#" << m.pid);
     std::unique_lock guard(mutex);
     msgs.push(m);
-    cv.notify_all();
   }
-  WorkIndication(int id) : WorkIndicationWrapper(id), msgs(), mutex(), cv() {}
+  WorkIndication(int id) : WorkIndicationWrapper(id), msgs(), mutex() {}
 };
 
 /*
@@ -153,16 +151,16 @@ pmhw_retval_t pmhw_poll_scheduled(int *transactionId, int *puppetId) {
   contract_assert(pmhw.initialized);
   contract_assert(!pmhw.cached_config.useSimulatedPuppets);
 
-  std::unique_lock guard(pmhw.workInd->mutex);
-  if (!pmhw.workInd->cv.wait_for(guard, std::chrono::milliseconds(100), [] {
-    return !pmhw.workInd->msgs.empty();
-  })) {
-    return PMHW_TIMEOUT;
+  pmhw.workInd->mutex.lock();
+  while (pmhw.workInd->msgs.empty()) {
+    pmhw.workInd->mutex.unlock();
+    pmhw.workInd->mutex.lock();
   }
 
   *transactionId = pmhw.workInd->msgs.front().tid;
   *puppetId = pmhw.workInd->msgs.front().pid;
   pmhw.workInd->msgs.pop();
+  pmhw.workInd->mutex.unlock();
   return PMHW_OK;
 }
 
