@@ -8,5 +8,10 @@ elif ! [ -n "$BOARD" ]; then
   exit 1
 fi
 
+if [ "$BOARD" = "verilator" ]; then
+  NOPROGRAM=0
+else
+  NOPROGRAM=1
+fi
 LD_LIBRARY_PATH=./deps/wrapper/output/$BOARD
 ./bin/main $@
