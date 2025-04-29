@@ -13,7 +13,9 @@ CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthr
 
 LIB_DEPS = -l:pmhw.so
 
-ifneq ($(BOARD), $(filter $(BOARD), sim sim_bloom))
+SIM_TYPES = sim sim_bloom sim_sort
+
+ifneq ($(BOARD), $(filter $(BOARD), $(SIM_TYPES)))
 LIB_DEPS += -l:connectal.so
 endif
 

@@ -13,12 +13,14 @@ GENERATED_DIR = $(GENERATED_ROOT)/$(BOARD)
 $(GENERATED_DIR)/connectal.so:
 	$(error Connectal-related files have not been generated. Run "make generate" first.)
 
+SIM_TYPES = sim sim_bloom sim_sort
+
 # Generate Conectal-related files
 .PHONY: generate
 generate:
 ifeq ($(BOARD), )
 	$(error BOARD variable is not defined, aborting build)
-else ifeq ($(BOARD), $(filter $(BOARD), sim sim_bloom))
+else ifeq ($(BOARD), $(filter $(BOARD), $(SIM_TYPES)))
 	$(error Cannot generate Connectal files with with BOARD = $(BOARD))
 else ifeq ($(CONNECTALDIR), )
 	$(error CONNECTALDIR variable is not defined, aborting build)
@@ -88,6 +90,9 @@ SOURCES += $(SRC_DIR)/pmhw_sim.c
 else ifeq ($(BOARD), sim_bloom)
 COMP = $(CC) $(CFLAGS)
 SOURCES += $(SRC_DIR)/pmhw_sim_bloom.c
+else ifeq ($(BOARD), sim_sort)
+COMP = $(CC) $(CFLAGS)
+SOURCES += $(SRC_DIR)/pmhw_sim_sort.c
 else ifeq ($(BOARD), verilator)
 COMP = $(CXX) $(CXXFLAGS)
 SOURCES += $(SRC_DIR)/pmhw.cpp
@@ -132,7 +137,7 @@ output: $(OBJ)
 
 .PHONY: all
 all:
-ifneq ($(BOARD), $(filter $(BOARD), sim sim_bloom))
+ifneq ($(BOARD), $(filter $(BOARD), $(SIM_TYPES)))
 	make generate
 endif
 	make output
