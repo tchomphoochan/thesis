@@ -61,11 +61,11 @@ Singleton representing active Puppetmaster instance
 static struct pmhw_singleton_t {
   bool initialized = false;
   pmhw_config_t cached_config;
-  std::unique_ptr<HostSetupRequestProxy> setup;
-  std::unique_ptr<HostTxnRequestProxy> txn;
-  std::unique_ptr<HostWorkDoneProxy> workDone;
-  std::unique_ptr<DebugIndication> debugInd;
-  std::unique_ptr<WorkIndication> workInd;
+  std::unique_ptr<HostSetupRequestProxy> setup = nullptr;
+  std::unique_ptr<HostTxnRequestProxy> txn = nullptr;
+  std::unique_ptr<HostWorkDoneProxy> workDone = nullptr;
+  std::unique_ptr<DebugIndication> debugInd = nullptr;
+  std::unique_ptr<WorkIndication> workInd = nullptr;
 } pmhw;
 
 /*
