@@ -21,6 +21,14 @@ extern "C" {
 #define BLOOM_NUM_HASHES 4
 #endif
 
+// Conditions on parameters
+#if BLOOM_TOTAL_BITS % BLOOM_NUM_HASHES != 0
+#error "BLOOM_NUM_HASHES must evently divide BLOOM_TOTAL_BITS"
+#endif
+#if (BLOOM_TOTAL_BITS / BLOOM_NUM_HASHES) % 64 != 0
+#error "Each partition of Bloom filter must have number of bits divisible by 64"
+#endif
+
 // --- Bloom Filter Structure ---
 
 typedef struct {
@@ -33,10 +41,12 @@ static inline uint32_t bloom_hash(uint64_t x, int idx) {
   // Multiply-shift hashing, different constant per hash function
   static const uint64_t hash_constants[] = {
     0x9e3779b97f4a7c15ull, 0xc6a4a7935bd1e995ull,
-    0x2545f4914f6cdd1dull, 0x21c64e4276c9f809ull
+    0x2545f4914f6cdd1dull, 0x21c64e4276c9f809ull,
+    0x5851f42d4c957f2dull, 0xda942042e4dd58b5ull,
+    0x14057b7ef767814full, 0x2f8b15c6c8b3a3c5ull
   };
   uint64_t h = x * hash_constants[idx];
-  return (uint32_t)(h >> (64 - 12)); // 12 bits for 4096 entries
+  return (h >> 46) % (BLOOM_TOTAL_BITS / BLOOM_NUM_HASHES);
 }
 
 // --- API ---
