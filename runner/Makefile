@@ -22,7 +22,7 @@ LIB_DEPS += -l:libconnectal-sim.so
 endif
 
 .PHONY: all
-all: $(BIN_DIR)/main
+all: $(BIN_DIR)/main $(BIN_DIR)/analyze
 
 ifeq ($(BOARD), )
 .PHONY: $(BIN_DIR)/main
@@ -42,6 +42,9 @@ endif
 $(BIN_DIR)/board.txt:
 	@mkdir -p bin
 	echo $(BOARD) > $(BIN_DIR)/board.txt
+
+$(BIN_DIR)/analyze: $(SRC_DIR)/analyze.c
+	$(CC) $(CFLAGS) $< -o $@
 
 $(PMHW_FILES):
 	$(error Manually "BOARD=... make -C deps/wrapper" to generate the necessary files before running this)

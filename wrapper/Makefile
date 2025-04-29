@@ -18,7 +18,7 @@ $(GENERATED_DIR)/connectal.so:
 generate:
 ifeq ($(BOARD), )
 	$(error BOARD variable is not defined, aborting build)
-else ifeq ($(BOARD), $(filter $(BOARD), sim sim_build))
+else ifeq ($(BOARD), $(filter $(BOARD), sim sim_bloom))
 	$(error Cannot generate Connectal files with with BOARD = $(BOARD))
 else ifeq ($(CONNECTALDIR), )
 	$(error CONNECTALDIR variable is not defined, aborting build)
@@ -120,8 +120,8 @@ endif
 
 OUTPUT_DIR = output/$(BOARD)
 
-.PHONY: all
-all: $(OBJ)
+.PHONY: output
+output: $(OBJ)
 	@mkdir -p $(OUTPUT_DIR)
 	@cp $(OBJ) $(OUTPUT_DIR)/
 	@cp $(INCLUDE_DIR)/pmhw.h $(OUTPUT_DIR)/
@@ -129,6 +129,13 @@ all: $(OBJ)
 	  cp $(CONNECTAL_DEPS) $(OUTPUT_DIR)/; \
 	fi
 	@echo Your output is available at $(OUTPUT_DIR)
+
+.PHONY: all
+all:
+ifneq ($(BOARD), $(filter $(BOARD), sim sim_bloom))
+	make generate
+endif
+	make output
 
 # ---------------------
 # Clean targets
