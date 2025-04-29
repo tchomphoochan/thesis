@@ -15,10 +15,9 @@
 /*
 Configuration
 */
-#ifndef WORK_SIMULATION_US
-#error "Must define WORK_SIMULATION_US"
-#endif
 #define TEST_TIMEOUT_SEC 20      // Timeout in seconds
+
+int work_sim_us;
 
 /*
 Fatal error reporting
@@ -212,7 +211,7 @@ void *puppet_worker_thread(void *arg) {
     start = now();
     do {
       end = now();
-    } while ((end - start) * 1e6 < WORK_SIMULATION_US);
+    } while ((end - start) * 1e6 < work_sim_us);
 
     record_event(EVENT_DONE, now(), txnId, worker->puppetId);
     CHECK_OK(pmhw_report_done(txnId, worker->puppetId));
@@ -334,7 +333,7 @@ Main
 */
 int main(int argc, char *argv[]) {
   if (argc != 3) {
-    fprintf(stderr, "Usage: %s <transactions.csv> <period>\n", argv[0]);
+    fprintf(stderr, "Usage: %s <transactions.csv> <work_sim_us>\n", argv[0]);
     exit(1);
   }
   pin_thread_to_core(0);
@@ -348,7 +347,8 @@ int main(int argc, char *argv[]) {
   CHECK_OK(pmhw_get_config(&config));
   config.useSimulatedPuppets = false;
   config.useSimulatedTxnDriver = false;
-  config.simulatedPuppetsClockPeriod = atoi(argv[2]);
+  // config.simulatedPuppetsClockPeriod = atoi(argv[2]);
+  work_sim_us = atoi(argv[2]);
   CHECK_EXPECTED(pmhw_set_config(&config), PMHW_PARTIAL);
 
   /*

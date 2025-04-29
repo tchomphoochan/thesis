@@ -87,6 +87,7 @@ static int queue_length(int head, int tail, int max) {
   return head <= tail ? tail - head : max - (head - tail);
 }
 
+#if BLOOM_FALLBACK_EXACT_CHECK
 static bool has_conflict_with_active(const pmhw_txn_t *pending) {
   for (int i = 0; i < num_active; ++i) {
     const pmhw_txn_t *active = &active_txns[i];
@@ -105,6 +106,7 @@ static bool has_conflict_with_active(const pmhw_txn_t *pending) {
   }
   return false;
 }
+#endif
 
 static bool bloom_conflict_check(const pmhw_txn_t *pending) {
   for (int i = 0; i < pending->numReadObjs; ++i)
