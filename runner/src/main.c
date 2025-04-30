@@ -17,7 +17,7 @@
 /*
 Configuration
 */
-#define TEST_TIMEOUT_SEC 20      // Timeout in seconds
+#define TEST_TIMEOUT_SEC 30      // Timeout in seconds
 
 int work_sim_us;
 

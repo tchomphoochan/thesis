@@ -13,7 +13,7 @@ GENERATED_DIR = $(GENERATED_ROOT)/$(BOARD)
 $(GENERATED_DIR)/connectal.so:
 	$(error Connectal-related files have not been generated. Run "make generate" first.)
 
-SIM_TYPES = sim sim_bloom sim_sort
+SIM_TYPES = sim sim_bloom sim_full_bloom sim_sort
 
 # Generate Conectal-related files
 .PHONY: generate
@@ -87,18 +87,26 @@ CONNECTAL_DEPS =
 ifeq ($(BOARD), sim)
 COMP = $(CC) $(CFLAGS)
 SOURCES += $(SRC_DIR)/pmhw_sim.c
+
 else ifeq ($(BOARD), sim_bloom)
 COMP = $(CC) $(CFLAGS)
 SOURCES += $(SRC_DIR)/pmhw_sim_bloom.c
-else ifeq ($(BOARD), sim_sort)
+
+else ifeq ($(BOARD), pmhw_sim_bloom)
+COMP = $(CC) $(CFLAGS)
+SOURCES += $(SRC_DIR)/pmhw_sim_full_bloom.c
+
+else ifeq ($(BOARD), sim_full_bloom)
 COMP = $(CC) $(CFLAGS)
 SOURCES += $(SRC_DIR)/pmhw_sim_sort.c
+
 else ifeq ($(BOARD), verilator)
 COMP = $(CXX) $(CXXFLAGS)
 SOURCES += $(SRC_DIR)/pmhw.cpp
 CONNECTAL_DEPS += $(GENERATED_DIR)/connectal.so $(GENERATED_DIR)/libconnectal-sim.so $(GENERATED_DIR)/vlsim
 CXXFLAGS += -l:connectal.so -l:libconnectal-sim.so
 CFLAGS += -l:connectal.so -l:libconnectal-sim.so
+
 else ifneq ($(BOARD), )
 COMP = $(CXX) $(CXXFLAGS)
 SOURCES += $(SRC_DIR)/pmhw.cpp
