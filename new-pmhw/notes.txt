@@ -1,0 +1,20 @@
+Max 537600 LUTs, 1075200 FFs
+
+Using full Bloom buffer (read + write separately)
+====
+
+2+2 objs/txn, 4 part x 128 bits each  ==> 2074 LUTs, 1024 FFs
+8+8 objs/txn, 4 part x 128 bits each  ==> 10245 LUTs, 1024 FFs
+8+8 objs/txn, 4 part x 512 bits each  ==> 88338 LUTs, 4096 FFs
+8+8 objs/txn, 4 part x 4096 bits each ==> 602532 LUTs, 32768 FFs
+
+Now with LFSRs:
+
+125 MHz, 8+8 objs/txn, 4 part x 128 bits each  ==> (synth) 11001 LUTs, 1548 FFs, (place) WNS=2.017
+200 MHz, 8+8 objs/txn, 4 part x 128 bits each  ==> (place) 10982 LUTs, 1548 FFs, WNS=0.692
+250 MHz, 8+8 objs/txn, 4 part x 128 bits each  ==> (place) 10985 LUTs, 1549 FFs, WNS=0.254
+
+250 MHz, 8+8 objs/txn, 4 part x 2048 bits each  ==> (synth) 366629 LUTs, 20220 FFs, (place) 367631 LUTs, 21335 FFs, WNS=0.254, took 5m to synth, took 34m to place and route, WNS=-3.451
+
+125 MHz, 8+8 objs/txn, 4 part x 1024 bits each  ==>  (place) 173799 LUTs, 9547 FFs, WNS=0.246
+125 MHz, 8+8 objs/txn, 4 part x 2048 bits each  ==>  (place) 366360 LUTs, 20743 FFs, WNS=0.044
