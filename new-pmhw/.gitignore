@@ -1,0 +1,8 @@
+build
+*~
+*.swp
+*.log
+*.jou
+*.str
+.DS_Store
+.Xil
