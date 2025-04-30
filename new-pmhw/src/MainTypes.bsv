@@ -4,6 +4,7 @@ import Vector::*;
 /*
 Utility
 */
+typedef UInt#(TLog#(size)) TIndex#(numeric type size);
 typedef UInt#(TAdd#(1, TLog#(size))) TNum#(numeric type size);
 
 /*
@@ -19,12 +20,12 @@ typedef struct {
     Vector#(MaxTxnReadObjs, ObjectHash) readObjs;
     TNum#(MaxTxnWriteObjs) numWriteObjs;
     Vector#(MaxTxnWriteObjs, ObjectHash) writeObjs;
-} Transaction deriving (Bits, Eq, FShow);
+} Transaction deriving (Bounded, Bits, Eq, FShow);
 
 /*
 Hash stuff
 */
 typedef 4 NumBloomParts;
-typedef 4096 BloomPartSize;
+typedef 2048 BloomPartSize;
 typedef Bit#(TLog#(BloomPartSize)) BloomPartIndex;
 typedef Vector#(NumBloomParts, BloomPartIndex) ObjectHash;

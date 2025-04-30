@@ -58,7 +58,7 @@ $(TOP_LEVEL_VERILOG_FILE): $(BUILD_DIR)/verilog/%.v: $(SRC)/%.bsv $(SRCS)
 # Manual Verilog inspection targets
 # -------------------------
 
-VERILOG_NAMES=Summary
+VERILOG_NAMES=Summary SummarySynth
 VERILOG_FILES=$(foreach test, $(VERILOG_NAMES), $(VERILOG_DIR)/mk$(test).v)
 
 $(VERILOG_FILES): $(VERILOG_DIR)/mk%.v: $(SRCS)
@@ -69,13 +69,13 @@ $(VERILOG_FILES): $(VERILOG_DIR)/mk%.v: $(SRCS)
 # Test targets
 # -------------------------
 
-TEST_NAMES=Summary
-TEST_EXES=$(foreach test, $(TEST_NAMES), $(SIM_DIR)/mk$(test)Test)
+TEST_NAMES=SummaryTest
+TEST_EXES=$(foreach test, $(TEST_NAMES), $(SIM_DIR)/mk$(test))
 
-$(TEST_EXES): $(SIM_DIR)/mk%Test: $(SRCS)
+$(TEST_EXES): $(SIM_DIR)/mk%: $(SRCS)
 	make dirs
-	bsc $(BSC_FLAGS) $(BSC_SIM_FLAGS) -g mk$*Test -u $(SRC)/$*.bsv
-	bsc $(BSC_FLAGS) $(BSC_SIM_FLAGS) -e mk$*Test -o $(SIM_DIR)/mk$*Test
+	bsc $(BSC_FLAGS) $(BSC_SIM_FLAGS) -g mk$* -u $(SRC)/$*.bsv
+	bsc $(BSC_FLAGS) $(BSC_SIM_FLAGS) -e mk$* -o $(SIM_DIR)/mk$*
 
 # -------------------------
 # Generate bitstreams from Verilog
