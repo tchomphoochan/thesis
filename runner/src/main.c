@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -9,6 +10,7 @@
 #include <time.h>
 #include <x86intrin.h> // for __rdtsc()
 #include <sched.h>
+#include <sys/sysinfo.h>
 
 #include "pmhw.h"
 
@@ -20,15 +22,20 @@ Configuration
 int work_sim_us;
 
 /*
-Fatal error reporting
+Printing
 */
-void fatal_error_impl(const char *filename, int line, const char *fmt, ...) {
+pthread_mutex_t print_mutex = PTHREAD_MUTEX_INITIALIZER;
+void log_message(const char *filename, int line, bool error, const char *header, const char *fmt, ...) {
   int use_color = isatty(fileno(stderr));
   const char *red = use_color ? "\033[1;31m" : "";
+  const char *yellow = use_color ? "\033[1;33m" : "";
+  const char *color = error ? red : yellow;
   const char *faint = use_color ? "\033[2m" : "";
   const char *reset = use_color ? "\033[0m" : "";
 
-  fprintf(stderr, "%s[ERROR]%s %s%s:%d%s: ", red, reset, faint, filename, line, reset);
+
+  pthread_mutex_lock(&print_mutex);
+  fprintf(stderr, "%s[%s]%s %s%s:%d%s: ", color, header, reset, faint, filename, line, reset);
 
   va_list args;
   va_start(args, fmt);
@@ -36,10 +43,12 @@ void fatal_error_impl(const char *filename, int line, const char *fmt, ...) {
   va_end(args);
 
   fprintf(stderr, "\n");
-  exit(2);
+  pthread_mutex_unlock(&print_mutex);
+  if (error) exit(2);
 }
 
-#define FATAL(...) fatal_error_impl(__FILE__, __LINE__, __VA_ARGS__)
+#define FATAL(...) log_message(__FILE__, __LINE__, true,  "ERROR", __VA_ARGS__)
+#define WARN(...)  log_message(__FILE__, __LINE__, false, "WARN",  __VA_ARGS__)
 
 /*
 Check result helper
@@ -157,11 +166,15 @@ int num_puppets;
 CPU pinning helper
 */
 void pin_thread_to_core(int core_id) {
+  int n = get_nprocs();
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
-  CPU_SET(core_id, &cpuset);
+  CPU_SET(core_id % n, &cpuset);
   if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) != 0) {
     FATAL("Failed to pin thread to core %d", core_id);
+  }
+  if (core_id >= n) {
+    WARN("Cannot pin thread to core %d. Pinned to %d instead.", core_id, core_id % n);
   }
 }
 
@@ -336,6 +349,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Usage: %s <transactions.csv> <work_sim_us>\n", argv[0]);
     exit(1);
   }
+  pthread_mutex_init(&print_mutex, NULL);
   pin_thread_to_core(0);
 
   /*
