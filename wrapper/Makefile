@@ -77,8 +77,8 @@ SRC_DIR = ./src
 OBJ_DIR = ./obj/$(BOARD)
 INCLUDE_DIR = ./include
 
-CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthread -shared -fpic
-CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthread -shared -fpic
+CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthread -shared -fpic -g
+CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthread -shared -fpic -g
 INCLUDES = $(wildcard $(INCLUDE_DIR)/*.h)
 
 COMP = 

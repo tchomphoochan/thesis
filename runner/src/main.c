@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <stdarg.h>
 #include <unistd.h>
@@ -135,9 +136,8 @@ Worker thread state
 */
 typedef struct {
   pthread_t thread;
-  pthread_mutex_t mutex;
   int transactionId;
-  bool hasWork;
+  atomic_bool hasWork;
   int puppetId;
   int completed_txns;
 } worker_t;
@@ -199,16 +199,13 @@ static void *puppet_worker_thread(void *arg) {
   while (1) {
     // Busy-wait loop for work assignment
     // If no work is available, just spin here
-    pthread_mutex_lock(&worker->mutex);
-    if (!worker->hasWork) {
-      pthread_mutex_unlock(&worker->mutex);
+    if (!atomic_load_explicit(&worker->hasWork, memory_order_acquire)) {
       continue;
     }
 
     int txnId = worker->transactionId;
-    worker->hasWork = false;
+    atomic_store_explicit(&worker->hasWork, false, memory_order_release);
     if (txnId == -1) {
-      pthread_mutex_unlock(&worker->mutex);
       break;  // Exit condition if assigned -1 (shutdown signal)
     }
 
@@ -223,8 +220,6 @@ static void *puppet_worker_thread(void *arg) {
     CHECK_OK(pmhw_report_done(txnId, worker->puppetId));
 
     worker->completed_txns++;
-
-    pthread_mutex_unlock(&worker->mutex);
   }
 
   return NULL;
@@ -251,14 +246,12 @@ static void *poller_thread(void *arg) {
 
     worker_t *worker = &puppets[puppetId];
 
-    pthread_mutex_lock(&worker->mutex);
-    if (worker->hasWork) {
+    if (atomic_load_explicit(&worker->hasWork, memory_order_acquire)) {
       FATAL("Puppet %d already has work assigned", puppetId);
     }
     record_event(EVENT_SCHEDULED, now(), txnId, puppetId);
     worker->transactionId = txnId;
-    worker->hasWork = true;
-    pthread_mutex_unlock(&worker->mutex);
+    atomic_store_explicit(&worker->hasWork, true, memory_order_release);
   }
   return NULL;
 }
@@ -401,9 +394,8 @@ int main(int argc, char *argv[]) {
 
   for (int i = 0; i < num_puppets; ++i) {
     puppets[i].puppetId = i;
-    pthread_mutex_init(&puppets[i].mutex, NULL);
     puppets[i].transactionId = -1;
-    puppets[i].hasWork = false;
+    atomic_store_explicit(&puppets[i].hasWork, false, memory_order_release);
   }
 
   for (int i = 0; i < num_puppets; ++i) {
@@ -454,10 +446,8 @@ int main(int argc, char *argv[]) {
   pthread_join(poller, NULL);
 
   for (int i = 0; i < num_puppets; ++i) {
-    pthread_mutex_lock(&puppets[i].mutex);
     puppets[i].transactionId = -1;
-    puppets[i].hasWork = true;
-    pthread_mutex_unlock(&puppets[i].mutex);
+    atomic_store_explicit(&puppets[i].hasWork, true, memory_order_release);
   }
   for (int i = 0; i < num_puppets; ++i) {
     pthread_join(puppets[i].thread, NULL);
