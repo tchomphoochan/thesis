@@ -1,4 +1,4 @@
-// pmhw_sim.c - Pure C simulation of Puppetmaster interface (with puppet free tracking)
+// pmhw_sim.c - Pure C simulation of Puppetmaster interface
 
 #define _GNU_SOURCE
 #include "pmhw.h"
@@ -62,12 +62,10 @@ typedef struct {
 
 typedef struct {
   int transactionId;
-  int puppetId;
 } done_entry_t;
 
 typedef struct {
   int transactionId;
-  int puppetId;
 } scheduled_entry_t;
 
 // === Queues ===
@@ -85,9 +83,6 @@ pthread_mutex_t done_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pmhw_txn_t active_txns[MAX_ACTIVE];
 static int num_active = 0;
 
-// Puppet free tracking
-static bool puppet_free[MAX_PUPPETS];
-
 static pthread_t scheduler_thread;
 static volatile int scheduler_running = 0;
 
@@ -99,7 +94,7 @@ static pmhw_config_t dummy_config = {
   .logNumberHashes = 0,
   .logNumberComparators = 0,
   .logNumberSchedulingRounds = 0,
-  .logNumberPuppets = 3, // 8 puppets
+  .logNumberPuppets = 3, // 8 puppets (UNUSED NOW)
   .numberAddressOffsetBits = 0,
   .logSizeRenamerBuffer = 0,
   .useSimulatedTxnDriver = true,
@@ -130,19 +125,6 @@ static bool conflicts_with_active(const pmhw_txn_t *pending) {
     }
   }
   return false;
-}
-
-static int find_free_puppet() {
-  static int prev = 0;
-  int n = 1 << dummy_config.logNumberPuppets;
-  for (int j = 0; j < n; ++j) {
-    int i = (prev+j) % n;
-    if (puppet_free[i]) {
-      // prev = i;
-      return i;
-    }
-  }
-  return -1; // No puppet available
 }
 
 // === Scheduler Thread ===
@@ -180,44 +162,25 @@ static void *scheduler_loop(void *arg) {
         }
       }
       CHECK(found);
-      // Mark puppet free
-      puppet_free[done_entry.puppetId] = true;
     }
 
-    // Drain pending queue (application called pmhw_schedule and added to our inputs)
+    if (num_active >= MAX_ACTIVE) { continue; }
+
+    // Check pending uqeue.
     txn_entry_t pending_entry;
-    while (spsc_peek_PendingQ(&pending_queue, &pending_entry)) {
-      if (pending_entry.txn.transactionId != -1 && !conflicts_with_active(&pending_entry.txn)) {
-        // Found a new usable transaction. Try to schedule it.
-        int assigned_puppet = find_free_puppet();
-        if (assigned_puppet >= 0) {
-          spsc_dequeue_PendingQ(&pending_queue, &pending_entry);
+    if (!spsc_peek_PendingQ(&pending_queue, &pending_entry)) { continue; }
+    if (conflicts_with_active(&pending_entry.txn)) { continue; }
 
-          // Enqueue to scheduled queue
-          // This is guaranteed to work.
-          scheduled_entry_t scheduled_entry = {
-            .transactionId = pending_entry.txn.transactionId,
-            .puppetId = assigned_puppet
-          };
-          CHECK(spsc_enqueue_ScheduledQ(&scheduled_queue, &scheduled_entry));
+    // Try to enqueue to scheduled queue
+    scheduled_entry_t scheduled_entry = {
+      .transactionId = pending_entry.txn.transactionId
+    };
+    if (!spsc_enqueue_ScheduledQ(&scheduled_queue, &scheduled_entry)) { continue; }
 
-          // Mark the puppet in use
-          puppet_free[assigned_puppet] = false;
-
-          // Move transaction to active_txns
-          CHECK(num_active < MAX_ACTIVE);
-          active_txns[num_active++] = pending_entry.txn;
-        } else {
-          // All puppets are full.
-          // Give up until next scheduling cycle.
-          break;
-        }
-      } else {
-        // Transaction doesn't fit.
-        // Just wait until next scheduling cycle.
-        break;
-      }
-    }
+    // Move transaction to active_txns (we know we have space)
+    // and schedule it
+    active_txns[num_active++] = pending_entry.txn;
+    CHECK(spsc_dequeue_PendingQ(&pending_queue, &pending_entry));
   }
   return NULL;
 }
@@ -232,12 +195,6 @@ pmhw_retval_t pmhw_reset() {
 
   num_active = 0;
   scheduler_running = 1;
-
-  // Initialize puppet state
-  int n = 1 << dummy_config.logNumberPuppets;
-  for (int i = 0; i < n; ++i) {
-    puppet_free[i] = true;
-  }
 
   if (pthread_create(&scheduler_thread, NULL, scheduler_loop, NULL) != 0) {
     return PMHW_NO_HW_CONN;
@@ -277,20 +234,19 @@ pmhw_retval_t pmhw_force_trigger_scheduling() {
   return PMHW_OK;
 }
 
-pmhw_retval_t pmhw_poll_scheduled(int *transactionId, int *puppetId) {
-  if (!transactionId || !puppetId) return PMHW_INVALID_VALS;
+pmhw_retval_t pmhw_poll_scheduled(int *transactionId) {
+  if (!transactionId) return PMHW_INVALID_VALS;
   scheduled_entry_t e;
   if (spsc_dequeue_ScheduledQ(&scheduled_queue, &e)) {
     *transactionId = e.transactionId;
-    *puppetId = e.puppetId;
     return PMHW_OK;
   }
   return PMHW_TIMEOUT;
 }
 
-pmhw_retval_t pmhw_report_done(int transactionId, int puppetId) {
+pmhw_retval_t pmhw_report_done(int transactionId) {
   pthread_mutex_lock(&done_mutex);
-  done_entry_t e = {.transactionId = transactionId, .puppetId = puppetId};
+  done_entry_t e = {.transactionId = transactionId };
   if (spsc_enqueue_DoneQ(&done_queue, &e)) {
     pthread_mutex_unlock(&done_mutex);
     return PMHW_OK;

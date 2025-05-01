@@ -17,6 +17,7 @@
 /*
 Configuration
 */
+#define MAX_PUPPETS 64
 #define TEST_TIMEOUT_SEC 10      // Timeout in seconds
 
 static int work_sim_us;
@@ -155,6 +156,10 @@ volatile int keep_polling = 1;
 static worker_t *puppets;
 static int num_puppets;
 
+static int num_free_puppets = 0;
+static int free_puppets[MAX_PUPPETS];
+static pthread_mutex_t puppet_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /*
 CPU pinning helper
 */
@@ -220,11 +225,16 @@ static void *puppet_worker_thread(void *arg) {
     } while ((end - start) * 1e6 < work_sim_us);
 
     record_event(EVENT_DONE, now(), txnId, worker->puppetId);
-    CHECK_OK(pmhw_report_done(txnId, worker->puppetId));
+    CHECK_OK(pmhw_report_done(txnId));
 
     worker->completed_txns++;
 
     pthread_mutex_unlock(&worker->mutex);
+
+    // give the puppet back
+    pthread_mutex_lock(&puppet_mutex);
+    free_puppets[num_free_puppets++] = worker->puppetId;
+    pthread_mutex_unlock(&puppet_mutex);
   }
 
   return NULL;
@@ -240,14 +250,25 @@ static void *poller_thread(void *arg) {
   pin_thread_to_core(3);
 
   while (keep_polling) {
-    int txnId = 0, puppetId = 0;
-    pmhw_retval_t status = pmhw_poll_scheduled(&txnId, &puppetId);
-
+    // Get a transaction.
+    int txnId;
+    pmhw_retval_t status = pmhw_poll_scheduled(&txnId);
     if (status == PMHW_TIMEOUT) {
       continue;
     } else if (status != PMHW_OK) {
       FATAL("pmhw_poll_scheduled failed with status %d", status);
     }
+
+    // Check for real now.
+    pthread_mutex_lock(&puppet_mutex);
+    while (num_free_puppets == 0) {
+      pthread_mutex_unlock(&puppet_mutex);
+      pthread_mutex_lock(&puppet_mutex);
+    }
+
+    // take the puppet and unlock
+    int puppetId = free_puppets[--num_free_puppets];
+    pthread_mutex_unlock(&puppet_mutex);
 
     worker_t *worker = &puppets[puppetId];
 
@@ -368,6 +389,7 @@ int main(int argc, char *argv[]) {
   */
 
   num_puppets = 1 << config.logNumberPuppets;
+  if (num_puppets > MAX_PUPPETS) FATAL("Unsupported number of puppets");
 
   FILE *f = fopen(argv[1], "r");
   if (!f) FATAL("Failed to open transaction file");
@@ -399,7 +421,11 @@ int main(int argc, char *argv[]) {
   puppets = (worker_t*) calloc(num_puppets, sizeof(worker_t));
   if (!puppets) FATAL("Failed to calloc puppets");
 
+  pthread_mutex_init(&puppet_mutex, NULL);
+  num_free_puppets = num_puppets;
+
   for (int i = 0; i < num_puppets; ++i) {
+    free_puppets[i] = i;
     puppets[i].puppetId = i;
     pthread_mutex_init(&puppets[i].mutex, NULL);
     puppets[i].transactionId = -1;

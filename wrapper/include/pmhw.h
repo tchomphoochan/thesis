@@ -120,14 +120,14 @@ If a transaction becomes ready, fills in transactionId and puppetId.
 May return PMHW_TIMEOUT if no transaction is ready within a timeout window.
 Returns PMHW_OK on success.
 */
-pmhw_retval_t pmhw_poll_scheduled(int *transactionId, int *puppetId);
+pmhw_retval_t pmhw_poll_scheduled(int *transactionId);
 
 /*
 Report that a previously assigned transaction has been completed by a puppet.
 This signals the scheduler that the puppet is now idle and ready for new work.
 Returns PMHW_OK or PMHW_ILLEGAL_OP if called improperly.
 */
-pmhw_retval_t pmhw_report_done(int transactionId, int puppetId);
+pmhw_retval_t pmhw_report_done(int transactionId);
 
 #ifdef __cplusplus
 }
