@@ -14,9 +14,9 @@
 #include <stdio.h>
 #include <sys/sysinfo.h>
 
-#define MAX_PENDING 1280
-#define MAX_ACTIVE 1280
-#define MAX_SCHEDULED 1280
+#define MAX_PENDING 128
+#define MAX_ACTIVE 128
+#define MAX_SCHEDULED 128
 #define MAX_PUPPETS 64
 
 /*

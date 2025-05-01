@@ -17,8 +17,8 @@ static inline void contract_assert(bool expr) {
 /*
 Maximum number of objects per transaction
 */
-#define PMHW_MAX_TXN_READ_OBJS  8
-#define PMHW_MAX_TXN_WRITE_OBJS 8
+#define PMHW_MAX_TXN_READ_OBJS  16
+#define PMHW_MAX_TXN_WRITE_OBJS 16
 #define PMHW_MAX_TXN_TOTAL_OBJS 16
 
 /*

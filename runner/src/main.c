@@ -54,7 +54,6 @@ static void log_message(const char *filename, int line, bool error, const char *
 /*
 Check result helper
 */
-#ifdef SAFETY_CHECKS
 #define CHECK_EXPECTED(retcode, expected) \
 do { \
   pmhw_retval_t _r = (retcode); \
@@ -63,13 +62,6 @@ do { \
     FATAL("pmhw_retval_t returned %d but expected %d", (int)_r, (int)_e); \
   } \
 } while (0)
-#else
-#define CHECK_EXPECTED(retcode, expected) \
-do { \
-  (void) (retcode); \
-  (void) (expected); \
-} while (0)
-#endif
 #define CHECK_OK(retcode) CHECK_EXPECTED(retcode, PMHW_OK)
 
 /*

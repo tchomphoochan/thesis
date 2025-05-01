@@ -24,10 +24,6 @@ def generate_transactions(n_txns, n_objs, max_objs_per_txn, write_prob, seed=Non
             used_objs.add(objid)
 
             writeflag = 1 if random.random() < write_prob else 0
-            if cnt_write+1 > max_objs_per_txn//2:
-              writeflag = 0
-            if cnt_read+1 > max_objs_per_txn//2:
-              writeflag = 1
             if writeflag:
               cnt_write += 1
             else:
