@@ -79,6 +79,7 @@ INCLUDE_DIR = ./include
 
 CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthread -shared -fpic
 CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthread -shared -fpic
+INCLUDES = $(wildcard $(INCLUDE_DIR)/*.h)
 
 COMP = 
 SOURCES =
@@ -122,7 +123,7 @@ ifeq ($(BOARD), )
 $(OBJ):
 	$(error BOARD variable is not defined, aborting build)
 else
-$(OBJ): $(SOURCES) $(CONNECTAL_DEPS)
+$(OBJ): $(SOURCES) $(INCLUDES) $(CONNECTAL_DEPS)
 	@mkdir -p $(OBJ_DIR)
 	$(COMP) $(SOURCES) -o $@
 endif
@@ -156,7 +157,7 @@ endif
 
 BIN_DIR = ./bin
 
-$(BIN_DIR)/spsc_bench: $(SRC_DIR)/spsc_bench.c
+$(BIN_DIR)/spsc_bench: $(SRC_DIR)/spsc_bench.c $(INCLUDE_DIR)/spsc_queue.h
 	mkdir -p bin
 	$(CC) -O2 -Wall -pthread -I$(INCLUDE_DIR) $< -o $@
 
