@@ -11,7 +11,6 @@
 #include <string.h>
 #include <x86intrin.h>
 #include <inttypes.h>
-#include <errno.h>
 
 #include "spsc_queue.h"
 
@@ -27,10 +26,10 @@ const int NUM_SIZES = sizeof(payload_sizes) / sizeof(payload_sizes[0]);
 typedef struct {
   void *buffer;
   int size;
-  atomic_ulong produced;
-  atomic_ulong consumed;
+  ulong produced;
+  ulong consumed;
   uint64_t *latencies;
-  atomic_uint_fast64_t latency_index;
+  uint64_t latency_index;
 } BenchContext;
 
 typedef struct {
@@ -40,7 +39,7 @@ typedef struct {
 
 SPSC_QUEUE_IMPL(GenericItem, GenericQueue)
 GenericQueue queue;
-static atomic_bool running = true;
+static volatile bool running = true;
 static double cpu_ghz = 1.0;
 
 void pin_to_core(int core_id) {
@@ -78,10 +77,10 @@ void *producer_thread_tp(void *arg) {
   GenericItem item;
   item.data = ctx->buffer;
 
-  while (atomic_load_explicit(&running, memory_order_relaxed)) {
+  while (running) {
     item.timestamp = 0;
     if (spsc_enqueue_GenericQueue(&queue, &item)) {
-      atomic_fetch_add_explicit(&ctx->produced, 1, memory_order_relaxed);
+      ctx->produced++;
     }
   }
   return NULL;
@@ -92,9 +91,9 @@ void *consumer_thread_tp(void *arg) {
   pin_to_core(CONSUMER_CORE);
   GenericItem item;
 
-  while (atomic_load_explicit(&running, memory_order_relaxed)) {
+  while (running) {
     if (spsc_dequeue_GenericQueue(&queue, &item)) {
-      atomic_fetch_add_explicit(&ctx->consumed, 1, memory_order_relaxed);
+      ctx->consumed++;
     }
   }
   return NULL;
@@ -103,11 +102,11 @@ void *consumer_thread_tp(void *arg) {
 void run_throughput_test(int payload_size) {
   BenchContext ctx = {.size = payload_size};
   ctx.buffer = malloc(payload_size);
-  atomic_store(&ctx.produced, 0);
-  atomic_store(&ctx.consumed, 0);
+  ctx.produced = 0;
+  ctx.consumed = 0;
 
   spsc_queue_init_GenericQueue(&queue, QUEUE_CAPACITY);
-  atomic_store(&running, true);
+  running = true;
 
   pthread_t producer, consumer;
   pthread_create(&producer, NULL, producer_thread_tp, &ctx);
@@ -116,7 +115,7 @@ void run_throughput_test(int payload_size) {
   struct timespec start, end;
   clock_gettime(CLOCK_MONOTONIC, &start);
   sleep(BENCH_DURATION_SEC);
-  atomic_store(&running, false);
+  running = false;
   pthread_join(producer, NULL);
   pthread_join(consumer, NULL);
   clock_gettime(CLOCK_MONOTONIC, &end);
@@ -124,18 +123,16 @@ void run_throughput_test(int payload_size) {
   double duration_sec = (end.tv_sec - start.tv_sec) +
                         (end.tv_nsec - start.tv_nsec) / 1e9;
 
-  uint64_t produced = atomic_load(&ctx.produced);
-  uint64_t consumed = atomic_load(&ctx.consumed);
-  uint64_t consumed_bits = (uint64_t)consumed * payload_size * 8;
+  uint64_t consumed_bits = (uint64_t)ctx.consumed * payload_size * 8;
 
   printf("=== Throughput Test: %4d bytes ===\n", payload_size);
   printf("Duration            : %.2f sec\n", duration_sec);
   printf("Consumed            : ");
-  print_with_commas(consumed);
+  print_with_commas(ctx.consumed);
   printf(" items (");
   print_with_commas(consumed_bits / (uint64_t)duration_sec);
   printf(" bits/sec)\n");
-  printf("Loss (enqueue fail) : %.2f%%\n\n", 100.0 * (produced - consumed) / (produced + 1));
+  printf("Loss (enqueue fail) : %.2f%%\n\n", 100.0 * (ctx.produced - ctx.consumed) / (ctx.produced + 1));
 
   spsc_queue_free_GenericQueue(&queue);
   free(ctx.buffer);
@@ -147,11 +144,11 @@ void *producer_thread_lat(void *arg) {
   GenericItem item;
   item.data = ctx->buffer;
 
-  while (atomic_load_explicit(&running, memory_order_relaxed)) {
+  while (running) {
     unsigned aux;
     item.timestamp = __rdtscp(&aux);
     if (spsc_enqueue_GenericQueue(&queue, &item)) {
-      atomic_fetch_add(&ctx->produced, 1);
+      ctx->produced++;
     }
   }
   return NULL;
@@ -162,17 +159,17 @@ void *consumer_thread_lat(void *arg) {
   pin_to_core(CONSUMER_CORE);
   GenericItem item;
 
-  while (atomic_load_explicit(&running, memory_order_relaxed)) {
+  while (running) {
     if (spsc_dequeue_GenericQueue(&queue, &item)) {
       unsigned aux;
       uint64_t now = __rdtscp(&aux);
       uint64_t lat = now - item.timestamp;
 
-      uint64_t idx = atomic_fetch_add(&ctx->latency_index, 1);
+      uint64_t idx = ctx->latency_index++;
       if (idx < LATENCY_SAMPLE_MAX)
         ctx->latencies[idx] = lat;
 
-      atomic_fetch_add(&ctx->consumed, 1);
+      ctx->consumed++;
     }
   }
   return NULL;
@@ -220,11 +217,11 @@ void run_latency_test(int payload_size) {
   ctx.buffer = malloc(payload_size);
   ctx.latencies = malloc(sizeof(uint64_t) * LATENCY_SAMPLE_MAX);
   ctx.latency_index = 0;
-  atomic_store(&ctx.produced, 0);
-  atomic_store(&ctx.consumed, 0);
+  ctx.produced = 0;
+  ctx.consumed = 0;
 
   spsc_queue_init_GenericQueue(&queue, QUEUE_CAPACITY);
-  atomic_store(&running, true);
+  running = true;
 
   pthread_t producer, consumer;
   pthread_create(&producer, NULL, producer_thread_lat, &ctx);
@@ -233,29 +230,27 @@ void run_latency_test(int payload_size) {
   struct timespec start, end;
   clock_gettime(CLOCK_MONOTONIC, &start);
   sleep(BENCH_DURATION_SEC);
-  atomic_store(&running, false);
+  running = false;
   pthread_join(producer, NULL);
   pthread_join(consumer, NULL);
   clock_gettime(CLOCK_MONOTONIC, &end);
 
-  uint64_t produced = atomic_load(&ctx.produced);
-  uint64_t consumed = atomic_load(&ctx.consumed);
   double duration_sec = (end.tv_sec - start.tv_sec) +
                         (end.tv_nsec - start.tv_nsec) / 1e9;
-  uint64_t consumed_bits = consumed * payload_size * 8;
+  uint64_t consumed_bits = ctx.consumed * payload_size * 8;
 
-  uint64_t count = atomic_load(&ctx.latency_index);
+  uint64_t count = ctx.latency_index;
   if (count > LATENCY_SAMPLE_MAX)
     count = LATENCY_SAMPLE_MAX;
 
   printf("=== Latency Test:    %4d bytes ===\n", payload_size);
   printf("Duration             : %.2f sec\n", duration_sec);
   printf("Consumed             : ");
-  print_with_commas(consumed);
+  print_with_commas(ctx.consumed);
   printf(" items (");
   print_with_commas(consumed_bits / (uint64_t)duration_sec);
   printf(" bits/sec)\n");
-  printf("Loss (enqueue fail)  : %.2f%%\n", 100.0 * (produced - consumed) / (produced + 1));
+  printf("Loss (enqueue fail)  : %.2f%%\n", 100.0 * (ctx.produced - ctx.consumed) / (ctx.produced + 1));
 
   print_latency_stats(ctx.latencies, count);
 
