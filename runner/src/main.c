@@ -17,15 +17,15 @@
 /*
 Configuration
 */
-#define TEST_TIMEOUT_SEC 30      // Timeout in seconds
+#define TEST_TIMEOUT_SEC 10      // Timeout in seconds
 
-int work_sim_us;
+static int work_sim_us;
 
 /*
 Printing
 */
-pthread_mutex_t print_mutex = PTHREAD_MUTEX_INITIALIZER;
-void log_message(const char *filename, int line, bool error, const char *header, const char *fmt, ...) {
+static pthread_mutex_t print_mutex = PTHREAD_MUTEX_INITIALIZER;
+static void log_message(const char *filename, int line, bool error, const char *header, const char *fmt, ...) {
   int use_color = isatty(fileno(stderr));
   const char *red = use_color ? "\033[1;31m" : "";
   const char *yellow = use_color ? "\033[1;33m" : "";
@@ -49,6 +49,7 @@ void log_message(const char *filename, int line, bool error, const char *header,
 
 #define FATAL(...) log_message(__FILE__, __LINE__, true,  "ERROR", __VA_ARGS__)
 #define WARN(...)  log_message(__FILE__, __LINE__, false, "WARN",  __VA_ARGS__)
+#define INFO(...)  log_message(__FILE__, __LINE__, false, "INFO",  __VA_ARGS__)
 
 /*
 Check result helper
@@ -77,7 +78,7 @@ Timing utilities
 static double cpu_ghz = 0.0;
 static uint64_t base_rdtsc = 0;
 
-void initialize_timer() {
+static void initialize_timer() {
   struct timespec ts_start, ts_end;
   uint64_t start = __rdtsc();
   clock_gettime(CLOCK_MONOTONIC, &ts_start);
@@ -89,7 +90,7 @@ void initialize_timer() {
   base_rdtsc = __rdtsc();
 }
 
-double now() {
+static double now() {
   return (double)(__rdtsc() - base_rdtsc) / (cpu_ghz * 1e9);
 }
 
@@ -109,9 +110,9 @@ typedef struct {
   int puppetId; // Only valid for scheduled/done
 } event_t;
 
-event_t *event_list;
-int event_index = 0;
-int max_total_events = 0;
+static event_t *event_list;
+static int event_index = 0;
+static int max_total_events = 0;
 
 /*
 For sorting events
@@ -152,15 +153,15 @@ typedef struct {
 /*
 Transaction buffer
 */
-pmhw_txn_t *txn_list;
-int num_txns = 0;
+static pmhw_txn_t *txn_list;
+static int num_txns = 0;
 
 /*
 Global state
 */
 volatile int keep_polling = 1;
-worker_t *puppets;
-int num_puppets;
+static worker_t *puppets;
+static int num_puppets;
 
 /*
 CPU pinning helper
@@ -181,7 +182,7 @@ void pin_thread_to_core(int core_id) {
 /*
 Record event
 */
-void record_event(event_kind_t kind, double timestamp, int txn_id, int puppet_id) {
+static void record_event(event_kind_t kind, double timestamp, int txn_id, int puppet_id) {
   int idx = __sync_fetch_and_add(&event_index, 1);
   event_list[idx] = (event_t){
     .kind = kind,
@@ -198,7 +199,7 @@ void record_event(event_kind_t kind, double timestamp, int txn_id, int puppet_id
 Worker thread
 It waits until it sees work assigned to it then simulates working for some microseconds
 */
-void *puppet_worker_thread(void *arg) {
+static void *puppet_worker_thread(void *arg) {
   worker_t *worker = (worker_t *)arg;
 
   pin_thread_to_core(4 + worker->puppetId);
@@ -241,7 +242,7 @@ void *puppet_worker_thread(void *arg) {
 Thread to poll for scheduling decisions from hardware
 Whenever it sees a result, it assigns it to the correct worker.
 */
-void *poller_thread(void *arg) {
+static void *poller_thread(void *arg) {
   (void)arg;
 
   pin_thread_to_core(3);
@@ -273,7 +274,7 @@ void *poller_thread(void *arg) {
 /*
 Client thread (submits transactions)
 */
-void *client_thread(void *arg) {
+static void *client_thread(void *arg) {
   (void)arg;
 
   pin_thread_to_core(1);
@@ -281,7 +282,12 @@ void *client_thread(void *arg) {
 
   for (int i = 0; i < num_txns; ++i) {
     record_event(EVENT_SUBMIT, now(), txn_list[i].transactionId, -1);
-    CHECK_OK(pmhw_schedule(&txn_list[i]));
+    while (true) {
+      pmhw_retval_t ret = pmhw_schedule(&txn_list[i]);
+      if (ret == PMHW_TIMEOUT) { continue; }
+      if (ret != PMHW_OK) { FATAL("client_thread failed"); }
+      break;
+    }
   }
 
   return NULL;
@@ -290,7 +296,7 @@ void *client_thread(void *arg) {
 /*
 Parse CSV transaction
 */
-int count_lines(FILE *f) {
+static int count_lines(FILE *f) {
   int count = 0;
   char buf[1000];
   while (fgets(buf, sizeof(buf), f)) {
@@ -433,6 +439,8 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_puppets; ++i) {
       sum += puppets[i].completed_txns;
     }
+    INFO("%d/%d transactions completed", sum, num_txns);
+
     if (sum == num_txns) {
       done = true;
       break;

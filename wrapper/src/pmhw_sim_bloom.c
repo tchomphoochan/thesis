@@ -1,6 +1,7 @@
 // pmhw_sim_bloom.c - Puppetmaster simulation with Bloom filter-based conflict checking
 
 #include "pmhw.h"
+#include "spsc_queue.h"
 #include "bloom.h"
 #include <pthread.h>
 #include <string.h>
@@ -33,23 +34,18 @@ typedef struct {
 
 // --- Queues ---
 
-static txn_entry_t pending_queue[MAX_PENDING];
-static int pending_head = 0, pending_tail = 0;
-static pthread_mutex_t pending_mutex = PTHREAD_MUTEX_INITIALIZER;
+SPSC_QUEUE_IMPL(txn_entry_t, PendingQ)
+SPSC_QUEUE_IMPL(done_entry_t, DoneQ)
+SPSC_QUEUE_IMPL(scheduled_entry_t, ScheduledQ)
 
-static done_entry_t done_queue[MAX_ACTIVE];
-static int done_head = 0, done_tail = 0;
-static pthread_mutex_t done_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static scheduled_entry_t scheduled_queue[MAX_SCHEDULED];
-static int scheduled_head = 0, scheduled_tail = 0;
-static pthread_mutex_t scheduled_mutex = PTHREAD_MUTEX_INITIALIZER;
+static PendingQ pending_queue;
+static DoneQ done_queue;
+static ScheduledQ scheduled_queue;
 
 static pmhw_txn_t active_txns[MAX_ACTIVE];
 static int num_active = 0;
 
 static bool puppet_free[MAX_PUPPETS];
-static pthread_mutex_t puppet_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static pthread_t scheduler_thread;
 static volatile int scheduler_running = 0;
@@ -120,24 +116,19 @@ static bool bloom_conflict_check(const pmhw_txn_t *pending) {
 
 static int find_free_puppet() {
   static int prev = 0;
-  pthread_mutex_lock(&puppet_mutex);
   int n = 1 << dummy_config.logNumberPuppets;
   for (int j = 0; j < n; ++j) {
     int i = (prev+j) % n;
     if (puppet_free[i]) {
       puppet_free[i] = false;
-      pthread_mutex_unlock(&puppet_mutex);
       return i;
     }
   }
-  pthread_mutex_unlock(&puppet_mutex);
   return -1;
 }
 
 static void mark_puppet_free(int puppet_id) {
-  pthread_mutex_lock(&puppet_mutex);
   puppet_free[puppet_id] = true;
-  pthread_mutex_unlock(&puppet_mutex);
 }
 
 static void rebuild_bloom() {
@@ -158,75 +149,77 @@ static void *scheduler_loop(void *arg) {
   (void)arg;
 
   while (scheduler_running) {
-    if (!queue_empty(done_head, done_tail)) {
-      pthread_mutex_lock(&done_mutex);
-      while (!queue_empty(done_head, done_tail)) {
-        done_entry_t e = done_queue[done_head];
-        done_head = (done_head + 1) % MAX_ACTIVE;
-        for (int i = 0; i < num_active; ++i) {
-          if (active_txns[i].transactionId == e.transactionId) {
-            active_txns[i] = active_txns[num_active - 1];
-            num_active--;
-            break;
-          }
+    // Drain the done queue
+    done_entry_t done_entry;
+    while (spsc_dequeue_DoneQ(&done_queue, &done_entry)) {
+      for (int i = 0; i < num_active; ++i) {
+        if (active_txns[i].transactionId == done_entry.transactionId) {
+          active_txns[i] = active_txns[num_active - 1];
+          num_active--;
+          break;
         }
-        mark_puppet_free(e.puppetId);
       }
-      pthread_mutex_unlock(&done_mutex);
+      mark_puppet_free(done_entry.puppetId);
     }
 
-    if (!queue_empty(pending_head, pending_tail)) {
-      pthread_mutex_lock(&pending_mutex);
-      int n = queue_length(pending_head, pending_tail, MAX_PENDING);
-      bool scheduled_something = false;
-      for (int i = 0; i < n; ++i) {
-        txn_entry_t *entry = &pending_queue[pending_head];
-        if (entry->txn.transactionId != -1) {
-          bool conflict = bloom_conflict_check(&entry->txn);
-#if BLOOM_FALLBACK_EXACT_CHECK
-          if (conflict && !has_conflict_with_active(&entry->txn)) {
-            conflict = false;
-          }
-#endif
-          if (!conflict) {
-            int assigned_puppet = find_free_puppet();
-            if (assigned_puppet >= 0) {
-              if (num_active < MAX_ACTIVE) {
-                active_txns[num_active++] = entry->txn;
-              }
-              pthread_mutex_lock(&scheduled_mutex);
-              scheduled_queue[scheduled_tail] = (scheduled_entry_t){
-                .transactionId = entry->txn.transactionId,
-                .puppetId = assigned_puppet
-              };
-              scheduled_tail = (scheduled_tail + 1) % MAX_SCHEDULED;
-              pthread_mutex_unlock(&scheduled_mutex);
-              for (int j = 0; j < entry->txn.numReadObjs; ++j)
-                bloom_insert(&active_bloom, entry->txn.readObjIds[j]);
-              for (int j = 0; j < entry->txn.numWriteObjs; ++j)
-                bloom_insert(&active_bloom, entry->txn.writeObjIds[j]);
-              scheduled_txn_since_refresh++;
-              scheduled_something = true;
-              if (scheduled_txn_since_refresh >= BLOOM_REFRESH_THRESHOLD) {
-                rebuild_bloom();
-                scheduled_txn_since_refresh = 0;
-              }
-              entry->txn.transactionId = -1;
-            } else {
-              break;
-            }
-          }
-        }
-      }
-      if (!scheduled_something && !queue_empty(pending_head, pending_tail)) {
-        rebuild_bloom();
-        scheduled_txn_since_refresh = 0;
-      }
-      while (!queue_empty(pending_head, pending_tail) && pending_queue[pending_head].txn.transactionId == -1) {
-        pending_head = (pending_head + 1) % MAX_PENDING;
-      }
-      pthread_mutex_unlock(&pending_mutex);
-    }
+      
+
+
+    // TODO: fill in the blank here
+
+//    if (!queue_empty(pending_head, pending_tail)) {
+//      pthread_mutex_lock(&pending_mutex);
+//      int n = queue_length(pending_head, pending_tail, MAX_PENDING);
+//      bool scheduled_something = false;
+//      for (int i = 0; i < n; ++i) {
+//        txn_entry_t *entry = &pending_queue[pending_head];
+//        if (entry->txn.transactionId != -1) {
+//          bool conflict = bloom_conflict_check(&entry->txn);
+//#if BLOOM_FALLBACK_EXACT_CHECK
+//          if (conflict && !has_conflict_with_active(&entry->txn)) {
+//            conflict = false;
+//          }
+//#endif
+//          if (!conflict) {
+//            int assigned_puppet = find_free_puppet();
+//            if (assigned_puppet >= 0) {
+//              if (num_active < MAX_ACTIVE) {
+//                active_txns[num_active++] = entry->txn;
+//              }
+//              pthread_mutex_lock(&scheduled_mutex);
+//              scheduled_queue[scheduled_tail] = (scheduled_entry_t){
+//                .transactionId = entry->txn.transactionId,
+//                .puppetId = assigned_puppet
+//              };
+//              scheduled_tail = (scheduled_tail + 1) % MAX_SCHEDULED;
+//              pthread_mutex_unlock(&scheduled_mutex);
+//              for (int j = 0; j < entry->txn.numReadObjs; ++j)
+//                bloom_insert(&active_bloom, entry->txn.readObjIds[j]);
+//              for (int j = 0; j < entry->txn.numWriteObjs; ++j)
+//                bloom_insert(&active_bloom, entry->txn.writeObjIds[j]);
+//              scheduled_txn_since_refresh++;
+//              scheduled_something = true;
+//              if (scheduled_txn_since_refresh >= BLOOM_REFRESH_THRESHOLD) {
+//                rebuild_bloom();
+//                scheduled_txn_since_refresh = 0;
+//              }
+//              entry->txn.transactionId = -1;
+//            } else {
+//              break;
+//            }
+//          }
+//        }
+//      }
+
+//      if (!scheduled_something && !queue_empty(pending_head, pending_tail)) {
+//        rebuild_bloom();
+//        scheduled_txn_since_refresh = 0;
+//      }
+//      while (!queue_empty(pending_head, pending_tail) && pending_queue[pending_head].txn.transactionId == -1) {
+//        pending_head = (pending_head + 1) % MAX_PENDING;
+//      }
+//      pthread_mutex_unlock(&pending_mutex);
+//    }
   }
   return NULL;
 }
@@ -234,19 +227,18 @@ static void *scheduler_loop(void *arg) {
 // --- Interface Implementations ---
 
 pmhw_retval_t pmhw_reset() {
-  pending_head = pending_tail = 0;
-  done_head = done_tail = 0;
-  scheduled_head = scheduled_tail = 0;
+  spsc_queue_init_PendingQ(&pending_queue, MAX_PENDING);
+  spsc_queue_init_DoneQ(&done_queue, MAX_ACTIVE);
+  spsc_queue_init_ScheduledQ(&scheduled_queue, MAX_SCHEDULED);
+
   num_active = 0;
   scheduler_running = 1;
 
   bloom_init(&active_bloom);
   scheduled_txn_since_refresh = 0;
 
-  pthread_mutex_lock(&puppet_mutex);
   int n = 1 << dummy_config.logNumberPuppets;
   for (int i = 0; i < n; ++i) puppet_free[i] = true;
-  pthread_mutex_unlock(&puppet_mutex);
 
   if (pthread_create(&scheduler_thread, NULL, scheduler_loop, NULL) != 0)
     return PMHW_NO_HW_CONN;
@@ -270,17 +262,11 @@ pmhw_retval_t pmhw_set_config(const pmhw_config_t *cfg) {
 
 pmhw_retval_t pmhw_schedule(const pmhw_txn_t *txn) {
   if (!txn) return PMHW_INVALID_VALS;
-
-  while (1) {
-    pthread_mutex_lock(&pending_mutex);
-    if (!queue_full(pending_head, pending_tail, MAX_PENDING)) {
-      pending_queue[pending_tail].txn = *txn;
-      pending_tail = (pending_tail + 1) % MAX_PENDING;
-      pthread_mutex_unlock(&pending_mutex);
-      return PMHW_OK;
-    }
-    pthread_mutex_unlock(&pending_mutex);
+  txn_entry_t e = { .txn = *txn };
+  if (spsc_enqueue_PendingQ(&pending_queue, &e)) {
+    return PMHW_OK;
   }
+  return PMHW_TIMEOUT;
 }
 
 pmhw_retval_t pmhw_trigger_simulated_driver() {
@@ -293,29 +279,19 @@ pmhw_retval_t pmhw_force_trigger_scheduling() {
 
 pmhw_retval_t pmhw_poll_scheduled(int *transactionId, int *puppetId) {
   if (!transactionId || !puppetId) return PMHW_INVALID_VALS;
-  if (queue_empty(scheduled_head, scheduled_tail)) return PMHW_TIMEOUT;
-
-  pthread_mutex_lock(&scheduled_mutex);
-  if (!queue_empty(scheduled_head, scheduled_tail)) {
-    scheduled_entry_t e = scheduled_queue[scheduled_head];
-    scheduled_head = (scheduled_head + 1) % MAX_SCHEDULED;
+  scheduled_entry_t e;
+  if (spsc_dequeue_ScheduledQ(&scheduled_queue, &e)) {
     *transactionId = e.transactionId;
     *puppetId = e.puppetId;
-    pthread_mutex_unlock(&scheduled_mutex);
     return PMHW_OK;
   }
-  pthread_mutex_unlock(&scheduled_mutex);
   return PMHW_TIMEOUT;
 }
 
 pmhw_retval_t pmhw_report_done(int transactionId, int puppetId) {
-  pthread_mutex_lock(&done_mutex);
-  if (!queue_full(done_head, done_tail, MAX_ACTIVE)) {
-    done_queue[done_tail] = (done_entry_t){.transactionId = transactionId, .puppetId = puppetId};
-    done_tail = (done_tail + 1) % MAX_ACTIVE;
-    pthread_mutex_unlock(&done_mutex);
+  done_entry_t e = {.transactionId = transactionId, .puppetId = puppetId};
+  if (spsc_enqueue_DoneQ(&done_queue, &e)) {
     return PMHW_OK;
   }
-  pthread_mutex_unlock(&done_mutex);
   return PMHW_ILLEGAL_OP;
 }
