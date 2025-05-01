@@ -234,8 +234,7 @@ pmhw_retval_t pmhw_reset() {
   scheduler_running = 1;
 
   // Initialize puppet state
-  int n = 1 << dummy_config.logNumberPuppets;
-  for (int i = 0; i < n; ++i) {
+  for (int i = 0; i < MAX_PUPPETS; ++i) {
     puppet_free[i] = true;
   }
 
