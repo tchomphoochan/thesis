@@ -151,6 +151,16 @@ endif
 	make output
 
 # ---------------------
+# Extra stuff
+# ---------------------
+
+BIN_DIR = ./bin
+
+$(BIN_DIR)/spsc_bench: $(SRC_DIR)/spsc_bench.c
+	mkdir -p bin
+	$(CC) -O2 -Wall -pthread -I$(INCLUDE_DIR) $< -o $@
+
+# ---------------------
 # Clean targets
 # ---------------------
 
