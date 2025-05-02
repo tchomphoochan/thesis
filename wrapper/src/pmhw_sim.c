@@ -77,10 +77,8 @@ SPSC_QUEUE_IMPL(done_entry_t, DoneQ)
 SPSC_QUEUE_IMPL(scheduled_entry_t, ScheduledQ)
 
 static PendingQ pending_queue;
-static DoneQ done_queue;
+static DoneQ done_queues[MAX_PUPPETS];
 static ScheduledQ scheduled_queue;
-
-pthread_mutex_t done_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static pmhw_txn_t active_txns[MAX_ACTIVE];
 static int num_active = 0;
@@ -90,6 +88,8 @@ static bool puppet_free[MAX_PUPPETS];
 
 static pthread_t scheduler_thread;
 static volatile int scheduler_running = 0;
+
+static int numPuppets;
 
 // Dummy configuration
 static pmhw_config_t dummy_config = {
@@ -166,22 +166,24 @@ static void *scheduler_loop(void *arg) {
 
   while (scheduler_running) {
     // Drain done queue (applications tells us it has finished executing a transaction)
-    done_entry_t done_entry;
-    while (spsc_dequeue_DoneQ(&done_queue, &done_entry)) {
-      bool found = false;
-      for (int i = 0; i < num_active; ++i) {
-        // Remove that transaction from list of active transactions
-        // (swap with the last one and decrease counter)
-        if (active_txns[i].transactionId == done_entry.transactionId) {
-          active_txns[i] = active_txns[num_active - 1];
-          num_active--;
-          found = true;
-          break;
+    for (int i = 0; i < numPuppets; ++i) {
+      done_entry_t done_entry;
+      while (spsc_dequeue_DoneQ(&done_queues[i], &done_entry)) {
+        bool found = false;
+        for (int i = 0; i < num_active; ++i) {
+          // Remove that transaction from list of active transactions
+          // (swap with the last one and decrease counter)
+          if (active_txns[i].transactionId == done_entry.transactionId) {
+            active_txns[i] = active_txns[num_active - 1];
+            num_active--;
+            found = true;
+            break;
+          }
         }
+        CHECK(found);
+        // Mark puppet free
+        puppet_free[done_entry.puppetId] = true;
       }
-      CHECK(found);
-      // Mark puppet free
-      puppet_free[done_entry.puppetId] = true;
     }
 
     // Drain pending queue (application called pmhw_schedule and added to our inputs)
@@ -225,10 +227,12 @@ static void *scheduler_loop(void *arg) {
 // === Interface Implementations ===
 
 pmhw_retval_t pmhw_reset() {
+  numPuppets = 1 << dummy_config.logNumberPuppets;
   spsc_queue_init_PendingQ(&pending_queue, MAX_PENDING);
-  spsc_queue_init_DoneQ(&done_queue, MAX_ACTIVE);
+  for (int i = 0; i < MAX_PUPPETS; ++i) {
+    spsc_queue_init_DoneQ(&done_queues[i], MAX_ACTIVE / MAX_PUPPETS);
+  }
   spsc_queue_init_ScheduledQ(&scheduled_queue, MAX_SCHEDULED);
-  pthread_mutex_init(&done_mutex, NULL);
 
   num_active = 0;
   scheduler_running = 1;
@@ -256,6 +260,7 @@ pmhw_retval_t pmhw_set_config(const pmhw_config_t *cfg) {
   if (cfg->useSimulatedTxnDriver || cfg->useSimulatedPuppets)
     return PMHW_INVALID_VALS;
   dummy_config = *cfg;
+  numPuppets = 1 << dummy_config.logNumberPuppets;
   return PMHW_PARTIAL;
 }
 
@@ -288,13 +293,10 @@ pmhw_retval_t pmhw_poll_scheduled(int *transactionId, int *puppetId) {
 }
 
 pmhw_retval_t pmhw_report_done(int transactionId, int puppetId) {
-  pthread_mutex_lock(&done_mutex);
   done_entry_t e = {.transactionId = transactionId, .puppetId = puppetId};
-  if (spsc_enqueue_DoneQ(&done_queue, &e)) {
-    pthread_mutex_unlock(&done_mutex);
+  if (spsc_enqueue_DoneQ(&done_queues[puppetId], &e)) {
     return PMHW_OK;
   }
-  pthread_mutex_unlock(&done_mutex);
   return PMHW_ILLEGAL_OP;
 }
 
