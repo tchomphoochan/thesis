@@ -7,3 +7,4 @@ SWSOCK*
 *.txt
 *.csv
 *.pdf
+perf.*

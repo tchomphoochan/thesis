@@ -81,10 +81,8 @@ static DoneQ done_queues[MAX_PUPPETS];
 static ScheduledQ scheduled_queue;
 
 static pmhw_txn_t active_txns[MAX_ACTIVE];
-static int num_active = 0;
-
-// Puppet free tracking
-static bool puppet_free[MAX_PUPPETS];
+static int free_puppets[MAX_PUPPETS];
+static int num_free_puppets = 0;
 
 static pthread_t scheduler_thread;
 static volatile int scheduler_running = 0;
@@ -124,8 +122,8 @@ static bool has_conflict(const pmhw_txn_t *a, const pmhw_txn_t *b) {
 }
 
 static bool conflicts_with_active(const pmhw_txn_t *pending) {
-  for (int i = 0; i < num_active; ++i) {
-    if (has_conflict(pending, &active_txns[i])) {
+  for (int i = 0; i < numPuppets; ++i) {
+    if (active_txns[i].transactionId != -1 && has_conflict(pending, &active_txns[i])) {
       return true;
     }
   }
@@ -133,14 +131,8 @@ static bool conflicts_with_active(const pmhw_txn_t *pending) {
 }
 
 static int find_free_puppet() {
-  static int prev = 0;
-  int n = 1 << dummy_config.logNumberPuppets;
-  for (int j = 0; j < n; ++j) {
-    int i = (prev+j) % n;
-    if (puppet_free[i]) {
-      // prev = i;
-      return i;
-    }
+  if (num_free_puppets > 0) {
+    return free_puppets[--num_free_puppets];
   }
   return -1; // No puppet available
 }
@@ -168,21 +160,10 @@ static void *scheduler_loop(void *arg) {
     // Drain done queue (applications tells us it has finished executing a transaction)
     for (int i = 0; i < numPuppets; ++i) {
       done_entry_t done_entry;
-      while (spsc_dequeue_DoneQ(&done_queues[i], &done_entry)) {
-        bool found = false;
-        for (int i = 0; i < num_active; ++i) {
-          // Remove that transaction from list of active transactions
-          // (swap with the last one and decrease counter)
-          if (active_txns[i].transactionId == done_entry.transactionId) {
-            active_txns[i] = active_txns[num_active - 1];
-            num_active--;
-            found = true;
-            break;
-          }
-        }
-        CHECK(found);
+      if (spsc_dequeue_DoneQ(&done_queues[i], &done_entry)) {
         // Mark puppet free
-        puppet_free[done_entry.puppetId] = true;
+        active_txns[done_entry.puppetId].transactionId = -1;
+        free_puppets[num_free_puppets++] = done_entry.puppetId;
       }
     }
 
@@ -204,11 +185,7 @@ static void *scheduler_loop(void *arg) {
           CHECK(spsc_enqueue_ScheduledQ(&scheduled_queue, &scheduled_entry));
 
           // Mark the puppet in use
-          puppet_free[assigned_puppet] = false;
-
-          // Move transaction to active_txns
-          CHECK(num_active < MAX_ACTIVE);
-          active_txns[num_active++] = pending_entry.txn;
+          active_txns[assigned_puppet] = pending_entry.txn;
         } else {
           // All puppets are full.
           // Give up until next scheduling cycle.
@@ -234,13 +211,14 @@ pmhw_retval_t pmhw_reset() {
   }
   spsc_queue_init_ScheduledQ(&scheduled_queue, MAX_SCHEDULED);
 
-  num_active = 0;
   scheduler_running = 1;
 
   // Initialize puppet state
   for (int i = 0; i < MAX_PUPPETS; ++i) {
-    puppet_free[i] = true;
+    active_txns[i].transactionId = -1;
+    free_puppets[i] = i;
   }
+  num_free_puppets = numPuppets;
 
   if (pthread_create(&scheduler_thread, NULL, scheduler_loop, NULL) != 0) {
     return PMHW_NO_HW_CONN;

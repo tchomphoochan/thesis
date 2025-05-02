@@ -28,10 +28,10 @@
   #define ENABLE_CONFLICT_CHECK 1
 #endif
 #ifndef WARMUP_PCT
-  #define WARMUP_PCT        0.05
+  #define WARMUP_PCT        0.10
 #endif
 #ifndef COOLDOWN_PCT
-  #define COOLDOWN_PCT      0.05
+  #define COOLDOWN_PCT      0.10
 #endif
 #ifndef LAT_HIST_BUCKETS
   #define LAT_HIST_BUCKETS  20

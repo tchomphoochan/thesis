@@ -18,6 +18,7 @@
 /*
 Configuration
 */
+#define MAX_PUPPETS 128
 #define TEST_TIMEOUT_SEC 10      // Timeout in seconds
 
 static int work_sim_us;
@@ -143,6 +144,11 @@ typedef struct {
   atomic_bool hasWork;
   int puppetId;
   int completed_txns;
+
+  /* optional: explicit padding so sizeof(worker_t) == 64  */
+  char _pad[64 - (sizeof(pthread_t) +
+                  sizeof(int) * 3 +
+                  sizeof(atomic_bool)) % 64];
 } worker_t;
 
 /*
@@ -155,7 +161,7 @@ static int num_txns = 0;
 Global state
 */
 volatile int keep_polling __attribute__((aligned(64))) = 1;
-static worker_t *puppets;
+static worker_t puppets[MAX_PUPPETS];
 static int num_puppets;
 
 /*
@@ -392,9 +398,6 @@ int main(int argc, char *argv[]) {
   Start worker threads
   */
 
-  puppets = (worker_t*) calloc(num_puppets, sizeof(worker_t));
-  if (!puppets) FATAL("Failed to calloc puppets");
-
   for (int i = 0; i < num_puppets; ++i) {
     puppets[i].puppetId = i;
     puppets[i].transactionId = -1;
@@ -474,7 +477,6 @@ int main(int argc, char *argv[]) {
 
   free(txn_list);
   free(event_list);
-  free(puppets);
 
   return 0;
 }
