@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdatomic.h>
+#include <stdalign.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -11,15 +12,13 @@
 #define SPSC_CAT(a, b) _SPSC_CAT(a, b)
 
 // ========== Core Template ==========
-#define SPSC_QUEUE_IMPL(TYPE, NAME)                                               \
-typedef struct {                                                                  \
-  TYPE *buffer;                                                                   \
-  int capacity;                                                                   \
-  atomic_int head; /* written only by consumer */                                 \
-  atomic_int tail; /* written only by producer */                                 \
-  int cached_head; /* used only by producer */                                    \
-  int cached_tail; /* used only by consumer */                                    \
-} NAME;                                                                           \
+#define SPSC_QUEUE_IMPL(TYPE, NAME) \
+typedef struct { \
+    alignas(64) atomic_int head; char _pad1[64-sizeof(atomic_int)]; \
+    alignas(64) atomic_int tail; char _pad2[64-sizeof(atomic_int)]; \
+    TYPE *buffer; int capacity; int cached_head; int cached_tail; \
+    char _pad[64 - sizeof(TYPE*) - sizeof(int)*3]; \
+} NAME; \
                                                                                  \
 static inline void SPSC_CAT(spsc_queue_init_, NAME)(NAME *q, int capacity) {     \
   q->buffer = malloc(sizeof(TYPE) * capacity);                                   \
