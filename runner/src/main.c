@@ -126,11 +126,11 @@ Print event
 static void print_event(const event_t *e) {
   double time = (double)(e->timestamp - base_rdtsc) / cpu_freq;
   if (e->kind == EVENT_SUBMIT) {
-    printf("[+%9.6f] submit txn id=%d\n", time, e->transactionId);
+    printf("[+%9.9f] submit txn id=%d\n", time, e->transactionId);
   } else if (e->kind == EVENT_SCHEDULED) {
-    printf("[+%9.6f] scheduled txn id=%d assigned to puppet %d\n", time, e->transactionId, e->puppetId);
+    printf("[+%9.9f] scheduled txn id=%d assigned to puppet %d\n", time, e->transactionId, e->puppetId);
   } else if (e->kind == EVENT_DONE) {
-    printf("[+%9.6f] done puppet %d finished txn id=%d\n", time, e->puppetId, e->transactionId);
+    printf("[+%9.9f] done puppet %d finished txn id=%d\n", time, e->puppetId, e->transactionId);
   }
 }
 
