@@ -154,7 +154,7 @@ static int num_txns = 0;
 /*
 Global state
 */
-volatile int keep_polling = 1;
+volatile int keep_polling __attribute__((aligned(64))) = 1;
 static worker_t *puppets;
 static int num_puppets;
 
