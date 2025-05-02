@@ -21,6 +21,7 @@ Configuration
 #define TEST_TIMEOUT_SEC 10      // Timeout in seconds
 
 static int work_sim_us;
+static uint64_t work_sim_cycles;
 
 /*
 Printing
@@ -68,7 +69,7 @@ do { \
 /*
 Timing utilities
 */
-static double cpu_ghz = 0.0;
+static double cpu_freq = 0.0;
 static uint64_t base_rdtsc = 0;
 
 static void initialize_timer() {
@@ -79,12 +80,13 @@ static void initialize_timer() {
   clock_gettime(CLOCK_MONOTONIC, &ts_end);
   uint64_t end = __rdtsc();
   double elapsed = (ts_end.tv_sec - ts_start.tv_sec) + (ts_end.tv_nsec - ts_start.tv_nsec) / 1e9;
-  cpu_ghz = (end - start) / (elapsed * 1e9);
+  cpu_freq = (end - start) / elapsed;
+  work_sim_cycles = (uint64_t)((work_sim_us * 1e-6) * cpu_freq);
   base_rdtsc = __rdtsc();
 }
 
-static double now() {
-  return (double)(__rdtsc() - base_rdtsc) / (cpu_ghz * 1e9);
+static uint64_t now() {
+  return __rdtsc();
 }
 
 /*
@@ -98,7 +100,7 @@ typedef enum {
 
 typedef struct {
   event_kind_t kind;
-  double timestamp;
+  uint64_t timestamp;
   int transactionId;
   int puppetId; // Only valid for scheduled/done
 } event_t;
@@ -122,12 +124,13 @@ static int compare_events(const void *a, const void *b) {
 Print event
 */
 static void print_event(const event_t *e) {
+  double time = (double)(e->timestamp - base_rdtsc) / cpu_freq;
   if (e->kind == EVENT_SUBMIT) {
-    printf("[+%9.6f] submit txn id=%d\n", e->timestamp, e->transactionId);
+    printf("[+%9.6f] submit txn id=%d\n", time, e->transactionId);
   } else if (e->kind == EVENT_SCHEDULED) {
-    printf("[+%9.6f] scheduled txn id=%d assigned to puppet %d\n", e->timestamp, e->transactionId, e->puppetId);
+    printf("[+%9.6f] scheduled txn id=%d assigned to puppet %d\n", time, e->transactionId, e->puppetId);
   } else if (e->kind == EVENT_DONE) {
-    printf("[+%9.6f] done puppet %d finished txn id=%d\n", e->timestamp, e->puppetId, e->transactionId);
+    printf("[+%9.6f] done puppet %d finished txn id=%d\n", time, e->puppetId, e->transactionId);
   }
 }
 
@@ -174,7 +177,7 @@ void pin_thread_to_core(int core_id) {
 /*
 Record event
 */
-static void record_event(event_kind_t kind, double timestamp, int txn_id, int puppet_id) {
+static void record_event(event_kind_t kind, uint64_t timestamp, int txn_id, int puppet_id) {
   int idx = __sync_fetch_and_add(&event_index, 1);
   event_list[idx] = (event_t){
     .kind = kind,
@@ -210,11 +213,11 @@ static void *puppet_worker_thread(void *arg) {
     }
 
     // Simulate transaction processing work by busy looping
-    double start, end;
+    uint64_t start, end;
     start = now();
     do {
       end = now();
-    } while ((end - start) * 1e6 < work_sim_us);
+    } while (end - start < work_sim_cycles);
 
     record_event(EVENT_DONE, now(), txnId, worker->puppetId);
     CHECK_OK(pmhw_report_done(txnId, worker->puppetId));
