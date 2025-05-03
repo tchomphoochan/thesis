@@ -21,7 +21,7 @@ Supported sizes
 /*
 Maximum number of objects per transaction
 */
-#define PMHW_MAX_TXN_OBJS  16
+#define PMHW_MAX_TXN_OBJS 16
 
 /*
 Object representation, supports up to 2^63 addresses

@@ -99,7 +99,7 @@ static workload_t *workload;
 /*
 Global state
 */
-volatile int keep_polling __attribute__((aligned(64))) = 1;
+volatile atomic_bool keep_polling __attribute__((aligned(64))) = ATOMIC_VAR_INIT(true);
 static puppet_t puppets[MAX_PUPPETS];
 
 /*
@@ -115,7 +115,7 @@ static void *puppet_thread(void *arg) {
   while (1) {
     // Busy-wait loop for work assignment
     // If no work is available, just spin here
-    if (!atomic_load_explicit(&puppet->has_work, memory_order_acquire)) {
+    if (!atomic_load_explicit(&puppet->has_work, memory_order_relaxed)) {
       continue;
     }
 
@@ -153,11 +153,11 @@ static void *poller_thread(void *arg) {
 
   pin_thread_to_core(POLLER_CORE);
 
-  while (keep_polling) {
+  while (atomic_load_explicit(&keep_polling, memory_order_relaxed)) {
     // find free pupet
     int puppet_id = -1;
     for (int i = 0; i < num_puppets; ++i) {
-      if (!atomic_load_explicit(&puppets[i].has_work, memory_order_acquire)) {
+      if (!atomic_load_explicit(&puppets[i].has_work, memory_order_relaxed)) {
         puppet_id = i;
       }
     }
@@ -327,7 +327,7 @@ int main(int argc, char *argv[]) {
   } else {
     // Graceful cleanup if possible (otherwise, don't bother)
     pmhw_shutdown();
-    keep_polling = 0;
+    atomic_store_explicit(&keep_polling, false, memory_order_relaxed);
     pthread_join(client, NULL);
     pthread_join(poller, NULL);
     for (int i = 0; i < num_puppets; ++i) {

@@ -35,7 +35,7 @@ static inline void SPSC_CAT(PREFIX, _free)(TYPENAME *q) { \
 } \
 \
 static inline bool SPSC_CAT(PREFIX, _enq)(TYPENAME *q, DATATYPE item) { \
-  int tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
+  int tail = atomic_load_explicit(&q->tail, memory_order_relaxed); \
   int next_tail = (tail + 1) % q->capacity; \
   int head = atomic_load_explicit(&q->head, memory_order_acquire); \
   if (next_tail == head) { \
@@ -47,7 +47,7 @@ static inline bool SPSC_CAT(PREFIX, _enq)(TYPENAME *q, DATATYPE item) { \
 } \
 \
 static inline bool SPSC_CAT(PREFIX, _full)(TYPENAME *q) { \
-  int tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
+  int tail = atomic_load_explicit(&q->tail, memory_order_relaxed); \
   int next_tail = (tail + 1) % q->capacity; \
   int head = atomic_load_explicit(&q->head, memory_order_acquire); \
   if (next_tail == head) { \
@@ -57,7 +57,7 @@ static inline bool SPSC_CAT(PREFIX, _full)(TYPENAME *q) { \
 } \
 \
 static inline bool SPSC_CAT(PREFIX, _peek)(TYPENAME *q, DATATYPE *item) { \
-  int head = atomic_load_explicit(&q->head, memory_order_acquire); \
+  int head = atomic_load_explicit(&q->head, memory_order_relaxed); \
   int tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
   if (head == tail) { \
       return false; /* empty */ \
@@ -67,7 +67,7 @@ static inline bool SPSC_CAT(PREFIX, _peek)(TYPENAME *q, DATATYPE *item) { \
 } \
 \
 static inline bool SPSC_CAT(PREFIX, _deq)(TYPENAME *q, DATATYPE *item) { \
-  int head = atomic_load_explicit(&q->head, memory_order_acquire); \
+  int head = atomic_load_explicit(&q->head, memory_order_relaxed); \
   int tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
   if (head == tail) { \
       return false; /* empty */ \

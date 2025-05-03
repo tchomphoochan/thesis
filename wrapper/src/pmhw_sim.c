@@ -27,7 +27,7 @@ static int num_active_txns = 0;
 static txn_t active_txns[MAX_ACTIVE];
 
 static pthread_t scheduler_thread;
-static volatile bool scheduler_running = false;
+static atomic_bool scheduler_running = ATOMIC_VAR_INIT(false);
 
 static bool conflicts_with_active(const txn_t *new_txn) {
   for (int i = 0; i < num_active_txns; ++i) {
@@ -45,7 +45,7 @@ static void *scheduler_loop(void *arg) {
   pin_thread_to_core(SCHEDULER_CORE_ID);
   (void)arg;
 
-  while (scheduler_running) {
+  while (atomic_load_explicit(&scheduler_running, memory_order_relaxed)) {
 
     // Drain done queue
     for (int puppet = 0; puppet < num_puppets; ++puppet) {
@@ -103,7 +103,7 @@ static void *scheduler_loop(void *arg) {
 // === Interface Implementations ===
 
 void pmhw_init(int num_clients_, int num_puppets_) {
-  ASSERT(!scheduler_running);
+  ASSERT(!atomic_load_explicit(&scheduler_running, memory_order_relaxed));
   num_clients = num_clients_;
   num_puppets = num_puppets_;
   ASSERT(num_clients <= MAX_CLIENTS);
@@ -115,16 +115,16 @@ void pmhw_init(int num_clients_, int num_puppets_) {
   spsc_tid_init(&sched_q, MAX_SCHED_OUT);
 
   // Mark the scheduler running
-  scheduler_running = true;
+  atomic_store_explicit(&scheduler_running, true, memory_order_relaxed);
   
   // Start the loop
   EXPECT_OK(pthread_create(&scheduler_thread, NULL, scheduler_loop, NULL) == 0);
 }
 
 void pmhw_shutdown() {
-  ASSERT(scheduler_running);
+  ASSERT(atomic_load_explicit(&scheduler_running, memory_order_relaxed));
 
-  scheduler_running = false;
+  atomic_store_explicit(&scheduler_running, false, memory_order_relaxed);
   EXPECT_OK(pthread_join(scheduler_thread, NULL) == 0);
 
   for (int i = 0; i < MAX_CLIENTS; ++i) spsc_txn_free(&pending_qs[i]);
@@ -133,21 +133,19 @@ void pmhw_shutdown() {
 }
 
 void pmhw_schedule(int client_id, const txn_t *txn) {
-  ASSERT(scheduler_running);
   ASSERT(txn);
-
+  if (!atomic_load_explicit(&scheduler_running, memory_order_relaxed)) return;
   pmlog_record(txn->id, PMLOG_SUBMIT, -1LLU);
   while (!spsc_txn_enq(&pending_qs[client_id], *txn));
 }
 
 bool pmhw_poll_scheduled(txn_id_t *txn_id) {
   ASSERT(txn_id);
-  if (!scheduler_running) return false;
+  if (!atomic_load_explicit(&scheduler_running, memory_order_relaxed)) return false;
   return spsc_tid_deq(&sched_q, txn_id);
 }
 
 void pmhw_report_done(int puppet_id, txn_id_t txn_id) {
-  ASSERT(scheduler_running);
   pmlog_record(txn_id, PMLOG_DONE, puppet_id);
   while (!spsc_tid_enq(&done_qs[puppet_id], txn_id));
 }
