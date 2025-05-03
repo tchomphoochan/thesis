@@ -96,10 +96,10 @@ static void *scheduler_loop(void *arg) {
         if (conflicts_with_active(&txn)) {
           break;
         }
-
-        // Found a good transaction, try to schedule it
-        bool success = spsc_tid_enq(&sched_q, txn.id);
-        if (!success) { break; }
+        // If full, also break
+        if (spsc_tid_full(&sched_q)) {
+          break;
+        }
 
         // If successfully scheduled, then must put it in our active list
         ASSERT(num_active_txns < MAX_ACTIVE);
@@ -108,6 +108,7 @@ static void *scheduler_loop(void *arg) {
         // Log and dequeue
         pmlog_record(txn.id, PMLOG_SCHED_READY, 0);
         ASSERT(spsc_txn_deq(&pending_qs[client], &txn));
+        ASSERT(spsc_tid_enq(&sched_q, txn.id));
       }
 
       // No space to schedule, break
@@ -154,9 +155,14 @@ void pmhw_shutdown() {
 bool pmhw_schedule(int client_id, const txn_t *txn) {
   ASSERT(scheduler_running);
   ASSERT(txn);
-  // must log before actually adding to the queue
-  // otherwise PMLOG_INPUT_RECV might actually be too fast
-  return spsc_txn_enq(&pending_qs[client_id], *txn);
+
+  if (spsc_txn_full(&pending_qs[client_id])) {
+    return false;
+  } else {
+    pmlog_record(txn->id, PMLOG_SUBMIT, -1LLU);
+    ASSERT(spsc_txn_enq(&pending_qs[client_id], *txn));
+    return true;
+  }
 }
 
 bool pmhw_poll_scheduled(txn_id_t *txn_id) {
@@ -165,8 +171,14 @@ bool pmhw_poll_scheduled(txn_id_t *txn_id) {
   return spsc_tid_deq(&sched_q, txn_id);
 }
 
-void pmhw_report_done(int puppet_id, txn_id_t txn_id) {
+bool pmhw_report_done(int puppet_id, txn_id_t txn_id) {
   ASSERT(scheduler_running);
-  ASSERT(spsc_tid_enq(&done_qs[puppet_id], txn_id));
+  if (spsc_tid_full(&done_qs[puppet_id])) {
+    return false;
+  } else {
+    pmlog_record(txn_id, PMLOG_DONE, puppet_id);
+    ASSERT(spsc_tid_enq(&done_qs[puppet_id], txn_id));
+    return true;
+  }
 }
 

@@ -21,11 +21,10 @@ handled by puppetmaster hardware/wrapper: PMLOG_INPUT_RECV, PMLOG_SCHED_READY
 */
 typedef enum {
   PMLOG_SUBMIT         = 0,  /* client starts trying to submit txn     */
-  PMLOG_INPUT_RECV     = 1,  /* hardware received the txn              */
-  PMLOG_SCHED_READY    = 2,  /* hardware scheduled the txn             */
-  PMLOG_WORK_RECV      = 3,  /* client got txn work request            */
-  PMLOG_DONE           = 4,  /* puppet finished processing             */
-  PMLOG_CLEANUP        = 5   /* puppet finished processing             */
+  PMLOG_SCHED_READY    = 1,  /* hardware scheduled the txn             */
+  PMLOG_WORK_RECV      = 2,  /* client got txn work request            */
+  PMLOG_DONE           = 3,  /* puppet finished processing             */
+  PMLOG_CLEANUP        = 4   /* puppet finished processing             */
 } pmlog_kind_t;
 
 typedef struct {
@@ -41,5 +40,7 @@ void pmlog_record(txn_id_t txn_id, pmlog_kind_t kind, uint64_t aux_data);
 
 void pmlog_start_timer(double cpu_freq);
 void pmlog_write(FILE *f);
-void pmlog_read(FILE *f);
+int pmlog_read(FILE *f, double *cpu_freq, uint64_t *base_tsc);
 void pmlog_dump_text(FILE *f);
+
+extern pmlog_evt_t *pmlog_evt_buf;

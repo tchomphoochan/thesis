@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
 
   if (strcmp(flag, "-b") == 0) {
     FILE *file = fopen(filename, "rb");
-    pmlog_read(file);
+    pmlog_read(file, NULL, NULL);
     pmlog_dump_text(stdout);
   } else if (strcmp(flag, "-t") == 0) {
     fprintf(stderr, "Not implemented\n");

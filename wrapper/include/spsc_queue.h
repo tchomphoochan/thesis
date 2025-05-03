@@ -49,6 +49,17 @@ static inline bool SPSC_CAT(PREFIX, _enq)(TYPENAME *q, DATATYPE item) { \
   return true; \
 } \
 \
+static inline bool SPSC_CAT(PREFIX, _full)(TYPENAME *q) { \
+  int tail = atomic_load_explicit(&q->tail, memory_order_relaxed); \
+  int next_tail = (tail + 1) % q->capacity; \
+  if (next_tail == q->cached_head) { \
+    q->cached_head = atomic_load_explicit(&q->head, memory_order_acquire); \
+    if (next_tail == q->cached_head) \
+      return true; /* full */ \
+  } \
+  return false; \
+} \
+\
 static inline bool SPSC_CAT(PREFIX, _peek)(TYPENAME *q, DATATYPE *item) { \
   int head = atomic_load_explicit(&q->head, memory_order_relaxed); \
   if (head == q->cached_tail) { \

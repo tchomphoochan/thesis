@@ -84,8 +84,9 @@ bool pmhw_poll_scheduled(txn_id_t *txn_id);
 /*
 Report that a previously assigned transaction has been completed by a puppet.
 This signals the scheduler that the puppet is now idle and ready for new work.
+Return true if successfully reported, false if timed out.
 */
-void pmhw_report_done(int worker_id, txn_id_t txn_id);
+bool pmhw_report_done(int worker_id, txn_id_t txn_id);
 
 #ifdef __cplusplus
 }

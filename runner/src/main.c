@@ -33,13 +33,13 @@
 Configuration
 */
 
-#define DEF_TIMEOUT_SEC     10
+#define DEF_TIMEOUT_SEC     30
 #define DEF_WORK_US         0
 #define DEF_NUM_CLIENTS     1
 #define DEF_NUM_PUPPETS     8
 #define DEF_SAMPLE_SHIFT    0
 #define DEF_WORKLOAD_FILE   "transactions.csv"
-#define DEF_LOG_FILE        "log.bin"
+#define DEF_LOG_FILE        ""
 #define DEF_DUMP_FILE       ""
 
 static const char *usage =
@@ -50,7 +50,7 @@ static const char *usage =
   "  --clients N          Number of client threads (default 1)\n"
   "  --puppets N          Number of worker (puppet) threads (default 8)\n"
   "  --sample-shift S     Log 1 event every 2^S txns (default 0)\n"
-  "  --log FILE           Binary log output (default log.bin)\n"
+  "  --log FILE           Binary log output (if set)\n"
   "  --dump FILE          Human dump after run (if set)\n"
   "  --status             Periodic stderr status (every second)\n"
   "  --live-dump          Print events as they happen (stdout)\n"
@@ -101,8 +101,6 @@ Global state
 */
 volatile int keep_polling __attribute__((aligned(64))) = 1;
 static puppet_t puppets[MAX_PUPPETS];
-static int free_puppet_ids[MAX_PUPPETS];
-volatile int num_free_puppets;
 
 /*
 Worker thread
@@ -117,7 +115,7 @@ static void *puppet_thread(void *arg) {
   while (1) {
     // Busy-wait loop for work assignment
     // If no work is available, just spin here
-    if (!atomic_load_explicit(&puppet->has_work, memory_order_acquire)) {
+    if (!atomic_load_explicit(&puppet->has_work, memory_order_relaxed)) {
       continue;
     }
 
@@ -128,6 +126,8 @@ static void *puppet_thread(void *arg) {
       break;  // Exit condition if assigned -1 (shutdown signal)
     }
 
+    pmlog_record(txn_id, PMLOG_WORK_RECV, puppet_id);
+
     // Simulate transaction processing work by busy looping
     uint64_t start, end;
     unsigned int _;
@@ -136,12 +136,9 @@ static void *puppet_thread(void *arg) {
       end = __rdtscp(&_);
     } while (end - start < work_sim_cycles);
 
-    pmlog_record(txn_id, PMLOG_DONE, puppet_id);
-    pmhw_report_done(puppet_id, txn_id);
+    while (!pmhw_report_done(puppet_id, txn_id));
 
     puppet->num_completed++;
-
-    free_puppet_ids[num_free_puppets++] = puppet_id;
   }
 
   return NULL;
@@ -157,17 +154,21 @@ static void *poller_thread(void *arg) {
   pin_thread_to_core(POLLER_CORE);
 
   while (keep_polling) {
-    if (num_free_puppets == 0) continue;
+    // find free pupet
+    int puppet_id = -1;
+    for (int i = 0; i < num_puppets; ++i) {
+      if (!atomic_load_explicit(&puppets[i].has_work, memory_order_relaxed)) {
+        puppet_id = i;
+      }
+    }
+    if (puppet_id == -1) continue;
 
     txn_id_t txn_id = 0;
     bool found = pmhw_poll_scheduled(&txn_id);
     if (!found) continue;
 
-    int puppet_id = free_puppet_ids[--num_free_puppets];
-    
     puppet_t *puppet = &puppets[puppet_id];
 
-    pmlog_record(txn_id, PMLOG_WORK_RECV, puppet_id);
     puppet->txn_id = txn_id;
     atomic_store_explicit(&puppet->has_work, true, memory_order_release);
   }
@@ -184,7 +185,6 @@ static void *client_thread(void *arg) {
   pmlog_start_timer(cpu_freq);
 
   for (int i = 0; i < workload->num_txns; ++i) {
-    pmlog_record(workload->txns[i].id, PMLOG_SUBMIT, -1ULL);
     while (true) {
       sched_yield();
       bool done = pmhw_schedule(0, &workload->txns[i]);
@@ -204,8 +204,8 @@ Parse command line arguments
 */
 static void parse_args(int argc, char **argv) {
   if (argc == 1) {
-    fprintf(stderr, "%s", usage);
-    exit(1);
+    fputs(usage, stderr);
+    exit(0);
   }
 
   static struct option opts[] = {
@@ -251,6 +251,11 @@ static void parse_args(int argc, char **argv) {
   if (workload_filename[0] == '\0') {
     FATAL("Workload not provided\n");
   }
+
+  if (log_filename[0] == '\0') {
+    WARN("Not logging");
+    sample_period = 0;
+  }
 }
 
 /*
@@ -266,7 +271,7 @@ int main(int argc, char *argv[]) {
   ASSERT(workload_filename[0]);
   workload = parse_workload(workload_filename);
 
-  pmlog_init(workload->num_txns * 5, sample_period, live_dump ? stdout : NULL);
+  pmlog_init(workload->num_txns * 6, sample_period, live_dump ? stdout : NULL);
   pmhw_init(num_clients, num_puppets); // Reminder: this creates a scheduler thread
 
   /*
@@ -277,11 +282,9 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < num_puppets; ++i) {
     puppets[i].id = i;
     puppets[i].txn_id = -1;
-    free_puppet_ids[i] = num_puppets-i-1;
     atomic_store_explicit(&puppets[i].has_work, false, memory_order_release);
     pthread_create(&puppets[i].thread, NULL, puppet_thread, &puppets[i]);
   }
-  num_free_puppets = num_puppets;
 
   /*
   Start poller and client
@@ -299,6 +302,8 @@ int main(int argc, char *argv[]) {
 
   // Every second, check whether everything has finished so we can break out early
   bool done = false;
+  bool success = false;
+  int prev = -1;
   for (int second = 0; second < (int) test_timeout_sec; second++) {
     int sum = 0;
     for (int i = 0; i < num_puppets; ++i) {
@@ -307,9 +312,16 @@ int main(int argc, char *argv[]) {
     if (status_updates) {
       INFO("%d/%d transactions completed", sum, workload->num_txns);
     }
+    if (sum == prev) {
+      done = true;
+      success = false;
+      break;
+    }
+    prev = sum;
 
     if (sum == workload->num_txns) {
       done = true;
+      success = true;
       break;
     }
     sleep(1);
@@ -317,21 +329,21 @@ int main(int argc, char *argv[]) {
 
   // Just crash if timed out
   if (!done) {
-    FATAL("Timeout after %d seconds", (int) test_timeout_sec);
-  }
-
-  /*
-  Graceful cleanup
-  */
-  pmhw_shutdown();
-  keep_polling = 0;
-  pthread_join(client, NULL);
-  pthread_join(poller, NULL);
-  for (int i = 0; i < num_puppets; ++i) {
-    // send shutdown signals (txn_id==-1)
-    puppets[i].txn_id = -1ULL;
-    atomic_store_explicit(&puppets[i].has_work, true, memory_order_release);
-    pthread_join(puppets[i].thread, NULL);
+    ERROR("Timeout after %d seconds", (int) test_timeout_sec);
+  } else if (!success) {
+    ERROR("Terminated due to no progress");
+  } else {
+    // Graceful cleanup if possible (otherwise, don't bother)
+    pmhw_shutdown();
+    keep_polling = 0;
+    pthread_join(client, NULL);
+    pthread_join(poller, NULL);
+    for (int i = 0; i < num_puppets; ++i) {
+      // send shutdown signals (txn_id==-1)
+      puppets[i].txn_id = -1ULL;
+      atomic_store_explicit(&puppets[i].has_work, true, memory_order_release);
+      pthread_join(puppets[i].thread, NULL);
+    }
   }
 
   /*

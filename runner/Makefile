@@ -47,8 +47,14 @@ $(BIN_DIR)/board.txt:
 	@mkdir -p bin
 	echo $(BOARD) > $(BIN_DIR)/board.txt
 
-$(BIN_DIR)/analyze: $(SRC_DIR)/analyze.c
-	$(CC) $(CFLAGS) $< -o $@
+ifeq ($(BOARD), )
+.PHONY: $(BIN_DIR)/analyze
+$(BIN_DIR)/analyze:
+	$(error BOARD variable is not defined, aborting build)
+else
+$(BIN_DIR)/analyze: $(SRC_DIR)/analyze.c $(SRC_DIR)/workload.c
+	$(CC) $(CFLAGS) $^ $(LIB_DEPS) -o $@
+endif
 
 ifeq ($(BOARD), )
 .PHONY: $(BIN_DIR)/readlog
@@ -56,7 +62,7 @@ $(BIN_DIR)/readlog:
 	$(error BOARD variable is not defined, aborting build)
 else
 $(BIN_DIR)/readlog: $(SRC_DIR)/readlog.c
-	$(CC) $(CFLAGS) $< $(LIB_DEPS) -o $@
+	$(CC) $(CFLAGS) $^ $(LIB_DEPS) -o $@
 endif
 
 $(PMHW_FILES):
