@@ -15,6 +15,8 @@
 #include <x86intrin.h> // for __rdtsc()
 #include <sched.h>
 #include <sys/sysinfo.h>
+#include <getopt.h>
+
 
 #include "pmhw.h"
 #include "pmlog.h"
@@ -27,25 +29,49 @@
 // #define SCHEDULER_CORE 3
 #define PUPPET_CORE_START 4
 
-/* Configuration constants */
+/*
+Configuration
+*/
 
-static int test_timeout_sec;
-static int work_sim_us;
-static int num_clients;
-static int num_puppets;
+#define DEF_TIMEOUT_SEC     10
+#define DEF_WORK_US         0
+#define DEF_NUM_CLIENTS     1
+#define DEF_NUM_PUPPETS     8
+#define DEF_SAMPLE_SHIFT    0
+#define DEF_WORKLOAD_FILE   "transactions.csv"
+#define DEF_LOG_FILE        "log.bin"
+#define DEF_DUMP_FILE       ""
 
-static int sample_period;
-static char log_filename[1000] = "log.bin";
+static const char *usage =
+  "Usage: puppetmaster [options]\n"
+  "  --input FILE         Transaction CSV file (default transactions.csv)\n"
+  "  --timeout SEC        Benchmark wall‑clock duration (default 10)\n"
+  "  --work-us USEC       Simulated work per txn (default 0)\n"
+  "  --clients N          Number of client threads (default 1)\n"
+  "  --puppets N          Number of worker (puppet) threads (default 8)\n"
+  "  --sample-shift S     Log 1 event every 2^S txns (default 0)\n"
+  "  --log FILE           Binary log output (default log.bin)\n"
+  "  --dump FILE          Human dump after run (if set)\n"
+  "  --status             Periodic stderr status (every second)\n"
+  "  --live-dump          Print events as they happen (stdout)\n"
+  "  --help\n";
 
-static char dump_filename[1000];
+static int test_timeout_sec = DEF_TIMEOUT_SEC;
+static int work_sim_us      = DEF_WORK_US;
+static int num_clients      = DEF_NUM_CLIENTS;
+static int num_puppets      = DEF_NUM_PUPPETS;
 
-static bool status_updates;
-static bool live_dump;
+static int  sample_period           = 1 << DEF_SAMPLE_SHIFT;
+static char log_filename[1000]      = DEF_LOG_FILE;
+static char dump_filename[1000]     = DEF_DUMP_FILE;
+static char workload_filename[1000] = DEF_WORKLOAD_FILE;
 
-/* Precomputed constants */
+static bool status_updates = false;
+static bool live_dump      = false;
 
-static double cpu_freq;
-static uint64_t work_sim_cycles; // precomputed so executors know how long to simulate for
+static double   cpu_freq        = 0.0;  // set at beginning of main
+static uint64_t work_sim_cycles = 0;    // ditto
+
 
 /*
 Worker thread state
@@ -75,6 +101,8 @@ Global state
 */
 volatile int keep_polling __attribute__((aligned(64))) = 1;
 static puppet_t puppets[MAX_PUPPETS];
+static int free_puppet_ids[MAX_PUPPETS];
+volatile int num_free_puppets;
 
 /*
 Worker thread
@@ -109,9 +137,11 @@ static void *puppet_thread(void *arg) {
     } while (end - start < work_sim_cycles);
 
     pmlog_record(txn_id, PMLOG_DONE, puppet_id);
-    pmhw_report_done(txn_id, puppet_id);
+    pmhw_report_done(puppet_id, txn_id);
 
     puppet->num_completed++;
+
+    free_puppet_ids[num_free_puppets++] = puppet_id;
   }
 
   return NULL;
@@ -127,16 +157,17 @@ static void *poller_thread(void *arg) {
   pin_thread_to_core(POLLER_CORE);
 
   while (keep_polling) {
+    if (num_free_puppets == 0) continue;
+
     txn_id_t txn_id = 0;
     bool found = pmhw_poll_scheduled(&txn_id);
     if (!found) continue;
 
-    // TODO: find free puppet
-    int puppet_id;
+    int puppet_id = free_puppet_ids[--num_free_puppets];
     
     puppet_t *puppet = &puppets[puppet_id];
 
-    pmlog_record(PMLOG_WORK_RECV, txn_id, puppet_id);
+    pmlog_record(txn_id, PMLOG_WORK_RECV, puppet_id);
     puppet->txn_id = txn_id;
     atomic_store_explicit(&puppet->has_work, true, memory_order_release);
   }
@@ -153,8 +184,9 @@ static void *client_thread(void *arg) {
   pmlog_start_timer(cpu_freq);
 
   for (int i = 0; i < workload->num_txns; ++i) {
-    pmlog_record(PMLOG_SUBMIT, workload->txns[i].id, -1ULL);
+    pmlog_record(workload->txns[i].id, PMLOG_SUBMIT, -1ULL);
     while (true) {
+      sched_yield();
       bool done = pmhw_schedule(0, &workload->txns[i]);
       if (!done) {
         // retry
@@ -167,45 +199,89 @@ static void *client_thread(void *arg) {
   return NULL;
 }
 
+/*
+Parse command line arguments
+*/
+static void parse_args(int argc, char **argv) {
+  if (argc == 1) {
+    fprintf(stderr, "%s", usage);
+    exit(1);
+  }
+
+  static struct option opts[] = {
+    {"input",        required_argument, 0, 'f'},
+    {"timeout",      required_argument, 0, 't'},
+    {"work-us",      required_argument, 0, 'w'},
+    {"clients",      required_argument, 0, 'c'},
+    {"puppets",      required_argument, 0, 'p'},
+    {"sample-shift", required_argument, 0, 's'},
+    {"log",          required_argument, 0, 'l'},
+    {"dump",         required_argument, 0, 'd'},
+    {"status",       no_argument,       0,  1 },
+    {"live-dump",    no_argument,       0,  2 },
+    {"help",         no_argument,       0, 'h'},
+    {0,0,0,0}
+  };
+
+  int opt, idx;
+  while ((opt = getopt_long(argc, argv, "f:t:w:c:p:s:l:d:h", opts, &idx)) != -1)
+  {
+    switch (opt) {
+      case 'f': strncpy(workload_filename, optarg, sizeof workload_filename - 1); break;
+      case 't': test_timeout_sec = atoi(optarg);  break;
+      case 'w': work_sim_us      = atoi(optarg);  break;
+      case 'c': num_clients      = atoi(optarg);  break;
+      case 'p': num_puppets      = atoi(optarg);  break;
+      case 's': sample_period    = 1 << atoi(optarg); break;
+      case 'l': strncpy(log_filename,  optarg, sizeof log_filename - 1); break;
+      case 'd': strncpy(dump_filename, optarg, sizeof dump_filename - 1); break;
+      case  1 : status_updates = true;  break;
+      case  2 : live_dump      = true;  break;
+      case 'h':
+      default:  fputs(usage, stderr); exit(0);
+    }
+  }
+
+  /* sanity checks */
+  if (test_timeout_sec <= 0 || work_sim_us < 0 ||
+    num_clients <= 0   || num_puppets <= 0) {
+    FATAL("Invalid argument value\n");
+  }
+
+  if (workload_filename[0] == '\0') {
+    FATAL("Workload not provided\n");
+  }
+}
 
 /*
 Main
 */
 int main(int argc, char *argv[]) {
   pin_thread_to_core(MAIN_CORE);
+
+  parse_args(argc, argv);
   cpu_freq = measure_cpu_freq();
+  work_sim_cycles = (uint64_t)(cpu_freq * (work_sim_us * 1e-6));
 
-  // TODO: parse argument flags (use argparse?)
-  // draft
-  // positional: <transactions.csv>
-  // --num-clients 1  (must be >0, <= NUM_CLIENTS)
-  // --num-pupppets 8  (must be >0, <= NUM_PUPPETS)
-  // --work-sim-us 10 (must be >=0)
-  // --log log.bin (default: log.bin; binary log file location)
-  //   --sample-period 4096  (0 = no log, >0 = log every x txns)
-  // --dump log.txt (default: "" (no dump); human readable dump)
-  // --live-dump (default: false; if enabled, print dump in real time to stdout)
-  // --live-status (default: true, print mid-run status updates to stderr)
-  if (argc != 3) { // TODO: not 3
-    fprintf(stderr, "Usage: %s <transactions.csv> <work_sim_us>\n", argv[0]); // TODO: overhaul
-    exit(1);
-  }
-
-  workload = parse_workload(argv[1]);
+  ASSERT(workload_filename[0]);
+  workload = parse_workload(workload_filename);
 
   pmlog_init(workload->num_txns * 5, sample_period, live_dump ? stdout : NULL);
   pmhw_init(num_clients, num_puppets); // Reminder: this creates a scheduler thread
 
   /*
+
   Start worker threads
   */
 
   for (int i = 0; i < num_puppets; ++i) {
     puppets[i].id = i;
     puppets[i].txn_id = -1;
+    free_puppet_ids[i] = num_puppets-i-1;
     atomic_store_explicit(&puppets[i].has_work, false, memory_order_release);
     pthread_create(&puppets[i].thread, NULL, puppet_thread, &puppets[i]);
   }
+  num_free_puppets = num_puppets;
 
   /*
   Start poller and client
@@ -261,13 +337,17 @@ int main(int argc, char *argv[]) {
   /*
   Print human-readable timestamp reports
   */
-  FILE *log_file = fopen(log_filename, "w");
-  pmlog_write(log_file);
-  fclose(log_file);
+  if (log_filename[0]) {
+    FILE *log_file = fopen(log_filename, "wb");
+    pmlog_write(log_file);
+    fclose(log_file);
+  }
 
-  FILE *dump_file = fopen(dump_filename, "w");
-  pmlog_dump_text(dump_file);
-  fclose(dump_file);
+  if (dump_filename[0]) {
+    FILE *dump_file = fopen(dump_filename, "w");
+    pmlog_dump_text(dump_file);
+    fclose(dump_file);
+  }
 
   /*
   Don't leak memory

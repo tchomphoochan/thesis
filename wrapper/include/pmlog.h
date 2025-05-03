@@ -20,7 +20,8 @@ typedef enum {
   PMLOG_INPUT_RECV     = 1,  /* hardware received the txn              */
   PMLOG_SCHED_READY    = 2,  /* hardware scheduled the txn             */
   PMLOG_WORK_RECV      = 3,  /* client got txn work request            */
-  PMLOG_DONE           = 4   /* puppet finished processing             */
+  PMLOG_DONE           = 4,  /* puppet finished processing             */
+  PMLOG_CLEANUP        = 5   /* puppet finished processing             */
 } pmlog_kind_t;
 
 typedef struct {

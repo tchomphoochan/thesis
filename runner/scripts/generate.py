@@ -31,7 +31,7 @@ def generate_transactions(n_txns, n_objs, max_objs_per_txn, write_prob, seed=Non
             accesses.append((objid, writeflag))
 
         # Format line
-        line = [str(aux_data)] + [f"{objid<<6},{writeflag}" for objid, writeflag in accesses]
+        line = [str(aux_data)] + [f"{objid},{writeflag}" for objid, writeflag in accesses]
         transactions.append(",".join(line))
 
     return transactions

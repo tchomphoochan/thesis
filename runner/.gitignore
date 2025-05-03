@@ -8,3 +8,4 @@ SWSOCK*
 *.csv
 *.pdf
 perf.*
+*.bin

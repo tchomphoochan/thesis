@@ -30,7 +30,18 @@ static pthread_t scheduler_thread;
 static volatile bool scheduler_running = false;
 
 static bool has_conflict(const txn_t *a, const txn_t *b) {
-  // TODO: implement this correctly
+  for (size_t i = 0; i < a->num_objs; i++) {
+    obj_id_t obj_a = a->objs[i] & ~(1ULL << 63);
+    bool wr_a      = obj_is_write(a->objs[i]);
+
+    for (size_t j = 0; j < b->num_objs; j++) {
+      obj_id_t obj_b = b->objs[j] & ~(1ULL << 63);
+      bool wr_b      = obj_is_write(b->objs[j]);
+
+      if (obj_a == obj_b && (wr_a || wr_b))
+        return true; // RW or WW conflict
+    }
+  }
   return false;
 }
 
@@ -56,8 +67,6 @@ static void *scheduler_loop(void *arg) {
     for (int puppet = 0; puppet < num_puppets; ++puppet) {
       txn_id_t txn_id;
       if (spsc_tid_deq(&done_qs[puppet], &txn_id)) {
-        pmlog_record(txn_id, PMLOG_INPUT_RECV, 0);
-
         // find the transaction in active list
         int i;
         bool found = false;
@@ -71,6 +80,7 @@ static void *scheduler_loop(void *arg) {
 
         // remove transaction txn_id from active
         active_txns[i] = active_txns[--num_active_txns];
+        pmlog_record(txn_id, PMLOG_CLEANUP, -1LLU);
       }
     }
 
@@ -87,8 +97,6 @@ static void *scheduler_loop(void *arg) {
           break;
         }
 
-        pmlog_record(txn.id, PMLOG_SCHED_READY, 0);
-
         // Found a good transaction, try to schedule it
         bool success = spsc_tid_enq(&sched_q, txn.id);
         if (!success) { break; }
@@ -96,6 +104,10 @@ static void *scheduler_loop(void *arg) {
         // If successfully scheduled, then must put it in our active list
         ASSERT(num_active_txns < MAX_ACTIVE);
         active_txns[num_active_txns++] = txn;
+
+        // Log and dequeue
+        pmlog_record(txn.id, PMLOG_SCHED_READY, 0);
+        ASSERT(spsc_txn_deq(&pending_qs[client], &txn));
       }
 
       // No space to schedule, break
@@ -131,13 +143,12 @@ void pmhw_init(int num_clients_, int num_puppets_) {
 void pmhw_shutdown() {
   ASSERT(scheduler_running);
 
+  scheduler_running = false;
   EXPECT_OK(pthread_join(scheduler_thread, NULL) == 0);
 
   for (int i = 0; i < MAX_CLIENTS; ++i) spsc_txn_free(&pending_qs[i]);
   for (int i = 0; i < MAX_PUPPETS; ++i) spsc_tid_free(&done_qs[i]);
   spsc_tid_free(&sched_q);
-  
-  scheduler_running = false;
 }
 
 bool pmhw_schedule(int client_id, const txn_t *txn) {
@@ -149,13 +160,13 @@ bool pmhw_schedule(int client_id, const txn_t *txn) {
 }
 
 bool pmhw_poll_scheduled(txn_id_t *txn_id) {
-  ASSERT(scheduler_running);
   ASSERT(txn_id);
+  if (!scheduler_running) return false;
   return spsc_tid_deq(&sched_q, txn_id);
 }
 
-void pmhw_report_done(int worker_id, txn_id_t txn_id) {
+void pmhw_report_done(int puppet_id, txn_id_t txn_id) {
   ASSERT(scheduler_running);
-  ASSERT(spsc_tid_enq(&done_qs[worker_id], txn_id));
+  ASSERT(spsc_tid_enq(&done_qs[puppet_id], txn_id));
 }
 

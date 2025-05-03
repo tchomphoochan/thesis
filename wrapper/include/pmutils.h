@@ -41,9 +41,9 @@ static inline void log_message(const char *filename, int line, const char *color
 #define INFO(...)  log_message(__FILE__, __LINE__, "\033[1;37m", "INFO",  __VA_ARGS__)
 #define FATAL(...) do { ERROR(__VA_ARGS__); exit(1); } while (0)
 
-#define EXPECTF(condition, ...) do { if (!(condition)) { FATAL(__VA_ARGS__); } } while (0)
-#define ASSERT(condition) EXPECTF(condition, "Assertion failed")
-#define EXPECT_OK(condition) EXPECTF(condition, "Unexpected failure")
+#define ASSERTF(condition, ...) do { if (!(condition)) { FATAL(__VA_ARGS__); } } while (0)
+#define ASSERT(condition) ASSERTF(condition, "Assertion failed")
+#define EXPECT_OK(condition) ASSERTF(condition, "Unexpected failure")
 
 static inline void pin_thread_to_core(int core_id) {
   int n = get_nprocs();
