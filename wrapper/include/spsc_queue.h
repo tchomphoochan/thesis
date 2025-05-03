@@ -17,8 +17,8 @@
 typedef struct { \
     alignas(64) atomic_int head; char _pad1[64-sizeof(atomic_int)]; \
     alignas(64) atomic_int tail; char _pad2[64-sizeof(atomic_int)]; \
-    DATATYPE *buffer; int capacity; int cached_head; int cached_tail; \
-    char _pad[64 - sizeof(DATATYPE*) - sizeof(int)*3]; \
+    DATATYPE *buffer; int capacity; \
+    char _pad[64 - sizeof(DATATYPE*) - sizeof(int)]; \
 } TYPENAME; \
 \
 static inline void SPSC_CAT(PREFIX, _init)(TYPENAME *q, int capacity) { \
@@ -26,8 +26,6 @@ static inline void SPSC_CAT(PREFIX, _init)(TYPENAME *q, int capacity) { \
   q->capacity = capacity; \
   atomic_init(&q->head, 0); \
   atomic_init(&q->tail, 0); \
-  q->cached_head = 0; \
-  q->cached_tail = 0; \
 } \
 \
 static inline void SPSC_CAT(PREFIX, _free)(TYPENAME *q) { \
@@ -37,11 +35,10 @@ static inline void SPSC_CAT(PREFIX, _free)(TYPENAME *q) { \
 } \
 \
 static inline bool SPSC_CAT(PREFIX, _enq)(TYPENAME *q, DATATYPE item) { \
-  int tail = atomic_load_explicit(&q->tail, memory_order_relaxed); \
+  int tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
   int next_tail = (tail + 1) % q->capacity; \
-  if (next_tail == q->cached_head) { \
-    q->cached_head = atomic_load_explicit(&q->head, memory_order_acquire); \
-    if (next_tail == q->cached_head) \
+  int head = atomic_load_explicit(&q->head, memory_order_acquire); \
+  if (next_tail == head) { \
       return false; /* full */ \
   } \
   q->buffer[tail] = item; \
@@ -50,21 +47,19 @@ static inline bool SPSC_CAT(PREFIX, _enq)(TYPENAME *q, DATATYPE item) { \
 } \
 \
 static inline bool SPSC_CAT(PREFIX, _full)(TYPENAME *q) { \
-  int tail = atomic_load_explicit(&q->tail, memory_order_relaxed); \
+  int tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
   int next_tail = (tail + 1) % q->capacity; \
-  if (next_tail == q->cached_head) { \
-    q->cached_head = atomic_load_explicit(&q->head, memory_order_acquire); \
-    if (next_tail == q->cached_head) \
+  int head = atomic_load_explicit(&q->head, memory_order_acquire); \
+  if (next_tail == head) { \
       return true; /* full */ \
   } \
   return false; \
 } \
 \
 static inline bool SPSC_CAT(PREFIX, _peek)(TYPENAME *q, DATATYPE *item) { \
-  int head = atomic_load_explicit(&q->head, memory_order_relaxed); \
-  if (head == q->cached_tail) { \
-    q->cached_tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
-    if (head == q->cached_tail) \
+  int head = atomic_load_explicit(&q->head, memory_order_acquire); \
+  int tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
+  if (head == tail) { \
       return false; /* empty */ \
   } \
   *item = q->buffer[head]; \
@@ -72,10 +67,9 @@ static inline bool SPSC_CAT(PREFIX, _peek)(TYPENAME *q, DATATYPE *item) { \
 } \
 \
 static inline bool SPSC_CAT(PREFIX, _deq)(TYPENAME *q, DATATYPE *item) { \
-  int head = atomic_load_explicit(&q->head, memory_order_relaxed); \
-  if (head == q->cached_tail) { \
-    q->cached_tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
-    if (head == q->cached_tail) \
+  int head = atomic_load_explicit(&q->head, memory_order_acquire); \
+  int tail = atomic_load_explicit(&q->tail, memory_order_acquire); \
+  if (head == tail) { \
       return false; /* empty */ \
   } \
   *item = q->buffer[head]; \
