@@ -24,7 +24,7 @@ LIB_DEPS += -l:libconnectal-sim.so
 endif
 
 .PHONY: all
-all: $(BIN_DIR)/main $(BIN_DIR)/analyze
+all: $(BIN_DIR)/main $(BIN_DIR)/analyze $(BIN_DIR)/readlog
 
 MAIN_SOURCES = $(addprefix $(SRC_DIR)/, main.c workload.c)
 
@@ -49,6 +49,15 @@ $(BIN_DIR)/board.txt:
 
 $(BIN_DIR)/analyze: $(SRC_DIR)/analyze.c
 	$(CC) $(CFLAGS) $< -o $@
+
+ifeq ($(BOARD), )
+.PHONY: $(BIN_DIR)/readlog
+$(BIN_DIR)/readlog:
+	$(error BOARD variable is not defined, aborting build)
+else
+$(BIN_DIR)/readlog: $(SRC_DIR)/readlog.c
+	$(CC) $(CFLAGS) $< $(LIB_DEPS) -o $@
+endif
 
 $(PMHW_FILES):
 	$(error Manually "BOARD=... make -C deps/wrapper" to generate the necessary files before running this)

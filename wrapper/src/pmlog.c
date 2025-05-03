@@ -87,11 +87,15 @@ void pmlog_start_timer(double _cpu_freq) {
 
 void pmlog_write(FILE *f) {
   fwrite(&num_events, sizeof(int), 1, f);
+  fwrite(&base_tsc, sizeof(uint64_t), 1, f);
+  fwrite(&cpu_freq, sizeof(double), 1, f);
   fwrite(buf, sizeof(pmlog_evt_t), num_events, f);
 }
 
 void pmlog_read(FILE *f) {
   fread(&num_events, sizeof(int), 1, f);
+  fread(&base_tsc, sizeof(uint64_t), 1, f);
+  fread(&cpu_freq, sizeof(double), 1, f);
   if (num_events > max_num_events) {
     buf = realloc(buf, num_events * sizeof(pmlog_evt_t));
     max_num_events = num_events;
