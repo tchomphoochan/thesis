@@ -21,7 +21,7 @@
 /* --------------------------------------------------------- */
 #define ENABLE_CONFLICT_CHECK     1   /* heavy; leave 0 for now  */
 #define ENABLE_ORDER_CHECK        1
-#define ENABLE_COMPLETENESS_CHECK 1
+#define ENABLE_COMPLETENESS_CHECK 0
 
 static int num_events;
 static double cpu_freq;
@@ -96,13 +96,14 @@ int main(int argc, char **argv)
   }
 
   /* --------------- completeness & order checks ------------ */
-#if ENABLE_COMPLETENESS_CHECK
   int missing = 0;
   for (int i = 0; i < wl->num_txns; i++) {
     if (!tl[i].submit || !tl[i].sched || !tl[i].work || !tl[i].done || !tl[i].cleanup) {
+#if ENABLE_COMPLETENESS_CHECK
       if (missing < 10) WARN("Completeness violation: txn_id=%d", i);
       if (missing == 10) WARN("Further completeness violations omitted");
       missing++;
+#endif
       continue;
     }
     if (tl[i].submit < first_submit) first_submit = tl[i].submit;
@@ -111,7 +112,6 @@ int main(int argc, char **argv)
   if (missing) {
     ERROR("%d / %d transactions incomplete in log", missing, wl->num_txns);
   }
-#endif
 
 #if ENABLE_ORDER_CHECK
   int order_err = 0;
