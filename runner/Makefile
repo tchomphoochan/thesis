@@ -1,6 +1,6 @@
 WRAPPER_DIR = deps/wrapper
 GENERATED_DIR = $(WRAPPER_DIR)/output/$(BOARD)
-PMHW_FILES = $(addprefix $(GENERATED_DIR)/, pmhw.h pmhw.o)
+PMHW_FILES = $(addprefix $(GENERATED_DIR)/, pmhw.h pmhw.so)
 
 INCLUDE_DIR = ./include
 SRC_DIR = ./src
@@ -8,10 +8,10 @@ BIN_DIR = ./bin
 
 DEFINES = -DWORK_SIMULATION_US=$(WORK_SIMULATION_US)
 
-CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -lm -pthread $(DEFINES) -g -flto
-CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -lm -pthread $(DEFINES) -g -flto
+CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -lm -pthread $(DEFINES) -g
+CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -lm -pthread $(DEFINES) -g
 
-LIB_DEPS = -l:pmhw.o
+LIB_DEPS = -l:pmhw.so
 
 SIM_TYPES = sim
 

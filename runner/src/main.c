@@ -186,6 +186,7 @@ static void *client_thread(void *arg) {
 
   for (int i = 0; i < workload->num_txns; ++i) {
     while (true) {
+      sched_yield();
       bool done = pmhw_schedule(0, &workload->txns[i]);
       if (!done) {
         // retry

@@ -104,7 +104,7 @@ CXXFLAGS += -l:connectal.so
 CFLAGS += -l:connectal.so
 endif
 
-OBJ = $(OBJ_DIR)/pmhw.o
+OBJ = $(OBJ_DIR)/pmhw.so
 
 ifeq ($(BOARD), )
 .PHONY: $(OBJ)

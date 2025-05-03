@@ -79,11 +79,9 @@ void *producer_thread_tp(void *arg) {
 
   while (running) {
     item.timestamp = 0;
-    //if (!GenericQueue_full(&queue)) {
-      if (GenericQueue_enq(&queue, item)) {
-        ctx->produced++;
-      }
-    //}
+    if (GenericQueue_enq(&queue, item)) {
+      ctx->produced++;
+    }
   }
   return NULL;
 }
