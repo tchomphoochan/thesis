@@ -55,10 +55,8 @@ static void parse_txn(txn_t *txn, int id, const char *buf) {
     while (*p && *p != ',') p++;
     if (*p == ',') p++;
 
-    
-    txn_id_t handle = objid;
     obj_set_rw(&objid, (bool)writeflag);
-    txn->objs[txn->num_objs++] = handle;
+    txn->objs[txn->num_objs++] = objid;
   }
 }
 

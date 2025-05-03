@@ -29,25 +29,9 @@ static txn_t active_txns[MAX_ACTIVE];
 static pthread_t scheduler_thread;
 static volatile bool scheduler_running = false;
 
-static bool has_conflict(const txn_t *a, const txn_t *b) {
-  for (size_t i = 0; i < a->num_objs; i++) {
-    obj_id_t obj_a = a->objs[i] & ~(1ULL << 63);
-    bool wr_a      = obj_is_write(a->objs[i]);
-
-    for (size_t j = 0; j < b->num_objs; j++) {
-      obj_id_t obj_b = b->objs[j] & ~(1ULL << 63);
-      bool wr_b      = obj_is_write(b->objs[j]);
-
-      if (obj_a == obj_b && (wr_a || wr_b))
-        return true; // RW or WW conflict
-    }
-  }
-  return false;
-}
-
 static bool conflicts_with_active(const txn_t *new_txn) {
   for (int i = 0; i < num_active_txns; ++i) {
-    if (has_conflict(new_txn, &active_txns[i])) {
+    if (check_txn_conflict(new_txn, &active_txns[i])) {
       return true;
     }
   }
@@ -96,10 +80,6 @@ static void *scheduler_loop(void *arg) {
         if (conflicts_with_active(&txn)) {
           break;
         }
-        // If full, also break
-        if (spsc_tid_full(&sched_q)) {
-          break;
-        }
 
         // If successfully scheduled, then must put it in our active list
         ASSERT(num_active_txns < MAX_ACTIVE);
@@ -108,7 +88,7 @@ static void *scheduler_loop(void *arg) {
         // Log and dequeue
         pmlog_record(txn.id, PMLOG_SCHED_READY, 0);
         ASSERT(spsc_txn_deq(&pending_qs[client], &txn));
-        ASSERT(spsc_tid_enq(&sched_q, txn.id));
+        while (!spsc_tid_enq(&sched_q, txn.id));
       }
 
       // No space to schedule, break
@@ -152,17 +132,12 @@ void pmhw_shutdown() {
   spsc_tid_free(&sched_q);
 }
 
-bool pmhw_schedule(int client_id, const txn_t *txn) {
+void pmhw_schedule(int client_id, const txn_t *txn) {
   ASSERT(scheduler_running);
   ASSERT(txn);
 
-  if (spsc_txn_full(&pending_qs[client_id])) {
-    return false;
-  } else {
-    pmlog_record(txn->id, PMLOG_SUBMIT, -1LLU);
-    ASSERT(spsc_txn_enq(&pending_qs[client_id], *txn));
-    return true;
-  }
+  pmlog_record(txn->id, PMLOG_SUBMIT, -1LLU);
+  while (!spsc_txn_enq(&pending_qs[client_id], *txn));
 }
 
 bool pmhw_poll_scheduled(txn_id_t *txn_id) {
@@ -171,14 +146,9 @@ bool pmhw_poll_scheduled(txn_id_t *txn_id) {
   return spsc_tid_deq(&sched_q, txn_id);
 }
 
-bool pmhw_report_done(int puppet_id, txn_id_t txn_id) {
+void pmhw_report_done(int puppet_id, txn_id_t txn_id) {
   ASSERT(scheduler_running);
-  if (spsc_tid_full(&done_qs[puppet_id])) {
-    return false;
-  } else {
-    pmlog_record(txn_id, PMLOG_DONE, puppet_id);
-    ASSERT(spsc_tid_enq(&done_qs[puppet_id], txn_id));
-    return true;
-  }
+  pmlog_record(txn_id, PMLOG_DONE, puppet_id);
+  while (!spsc_tid_enq(&done_qs[puppet_id], txn_id));
 }
 

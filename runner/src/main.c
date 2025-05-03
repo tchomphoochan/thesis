@@ -115,7 +115,7 @@ static void *puppet_thread(void *arg) {
   while (1) {
     // Busy-wait loop for work assignment
     // If no work is available, just spin here
-    if (!atomic_load_explicit(&puppet->has_work, memory_order_relaxed)) {
+    if (!atomic_load_explicit(&puppet->has_work, memory_order_acquire)) {
       continue;
     }
 
@@ -136,7 +136,7 @@ static void *puppet_thread(void *arg) {
       end = __rdtscp(&_);
     } while (end - start < work_sim_cycles);
 
-    while (!pmhw_report_done(puppet_id, txn_id));
+    pmhw_report_done(puppet_id, txn_id);
 
     puppet->num_completed++;
   }
@@ -157,7 +157,7 @@ static void *poller_thread(void *arg) {
     // find free pupet
     int puppet_id = -1;
     for (int i = 0; i < num_puppets; ++i) {
-      if (!atomic_load_explicit(&puppets[i].has_work, memory_order_relaxed)) {
+      if (!atomic_load_explicit(&puppets[i].has_work, memory_order_acquire)) {
         puppet_id = i;
       }
     }
@@ -185,15 +185,7 @@ static void *client_thread(void *arg) {
   pmlog_start_timer(cpu_freq);
 
   for (int i = 0; i < workload->num_txns; ++i) {
-    while (true) {
-      sched_yield();
-      bool done = pmhw_schedule(0, &workload->txns[i]);
-      if (!done) {
-        // retry
-        continue;
-      }
-      break;
-    }
+    pmhw_schedule(0, &workload->txns[i]);
   }
 
   return NULL;
@@ -365,6 +357,7 @@ int main(int argc, char *argv[]) {
   Don't leak memory
   */
   free(workload);
+  pmlog_cleanup();
 
   return 0;
 }
