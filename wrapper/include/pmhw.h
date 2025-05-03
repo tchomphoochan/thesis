@@ -2,132 +2,90 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "pmutils.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifndef __cpp_contracts
-#include <assert.h>
-static inline void contract_assert(bool expr) {
-  assert(expr);
-}
-#endif
+/*
+Supported sizes
+*/
+#define MAX_CLIENTS 1
+#define MAX_PUPPETS 32
+#define SCHEDULER_CORE_ID 2
+#define MAX_PENDING_PER_CLIENT 128
+#define MAX_ACTIVE 128
+#define MAX_SCHED_OUT 128
 
 /*
 Maximum number of objects per transaction
 */
-#define PMHW_MAX_TXN_READ_OBJS  16
-#define PMHW_MAX_TXN_WRITE_OBJS 16
-#define PMHW_MAX_TXN_TOTAL_OBJS 16
+#define PMHW_MAX_TXN_OBJS  16
 
 /*
-Return codes for Puppetmaster-related operations
+Object representation, supports up to 2^63 addresses
+Use the top bit to identify whether it's a read or a write object
 */
-typedef enum {
-  // Ok results
-  PMHW_OK = 0,
-  PMHW_PARTIAL = 1,
-  // Operation timed out (e.g., no transaction scheduled within timeout window)
-  PMHW_TIMEOUT = 2,
-  // Fail to talk with hardware
-  PMHW_NO_HW_CONN = 3,
-  // Illegal or unsupported operation
-  PMHW_ILLEGAL_OP = 4,
-  // Unsupported or invalid configuration values
-  PMHW_INVALID_VALS = 5
-} pmhw_retval_t;
-
-/*
-Puppetmaster hardware configuration
-*/
-typedef struct {
-  int logNumberRenamerThreads;
-  int logNumberShards;
-  int logSizeShard;
-  int logNumberHashes;
-  int logNumberComparators;
-  int logNumberSchedulingRounds;
-  int logNumberPuppets;
-  int numberAddressOffsetBits;
-  int logSizeRenamerBuffer;
-  bool useSimulatedTxnDriver;    // If true, use synthetic transaction driver inside hardware
-  bool useSimulatedPuppets;      // If true, puppets will self-complete work automatically
-  int simulatedPuppetsClockPeriod; // Clock period for simulated puppets (only relevant if useSimulatedPuppets is true)
-} pmhw_config_t;
+typedef uint64_t obj_id_t;
+static inline bool obj_is_write(obj_id_t id) {
+  return id & (1LLU << 63);
+}
+static inline void obj_set_write(obj_id_t *id) {
+  *id |= (1LLU << 63);
+}
+static inline void obj_set_read(obj_id_t *id) {
+  *id &= ~(1LLU << 63);
+}
+static inline void obj_set_rw(obj_id_t *id, bool write) {
+  *id = ((*id) & ~(1LLU << 63)) | (write ? (1LLU << 63) : 0);
+}
 
 /*
 Puppetmaster transaction descriptor
 */
+typedef uint64_t txn_id_t;
+typedef uint64_t aux_data_t;
 typedef struct {
-  int transactionId;                     // Application-defined transaction ID
-  uint64_t auxData;                       // User-defined auxiliary data
-  int numReadObjs;                        // Number of read objects
-  uint64_t readObjIds[PMHW_MAX_TXN_READ_OBJS];   // List of object IDs read
-  int numWriteObjs;                       // Number of write objects
-  uint64_t writeObjIds[PMHW_MAX_TXN_WRITE_OBJS]; // List of object IDs written
-} pmhw_txn_t;
+  txn_id_t id;
+  aux_data_t aux_data;
+  size_t num_objs;
+  obj_id_t objs[PMHW_MAX_TXN_OBJS];
+} txn_t;
 
 /*
 Interfaces
 */
 
 /*
-Fetch the current hardware configuration from Puppetmaster.
-Blocks until configuration is available.
-Returns PMHW_OK on success, or PMHW_NO_HW_CONN if hardware unavailable.
+Initialize Puppetmaster. Must be called before any other operations.
 */
-pmhw_retval_t pmhw_get_config(pmhw_config_t *ret);
+void pmhw_init(int num_clients, int num_puppets);
 
 /*
-Request a change to the Puppetmaster hardware configuration.
-Only a limited subset of options may be set (e.g., switching to simulation modes).
-Returns PMHW_PARTIAL on partial success, or PMHW_INVALID_VALS if invalid.
+Clean up Puppetmaster.
 */
-pmhw_retval_t pmhw_set_config(const pmhw_config_t *cfg);
-
-/*
-Reset the Puppetmaster hardware state and reinitialize internal structures.
-Must be called before any other operations.
-Returns PMHW_OK or PMHW_NO_HW_CONN.
-*/
-pmhw_retval_t pmhw_reset();
+void pmhw_cleanup();
 
 /*
 Submit a new transaction descriptor to Puppetmaster.
-The transaction may be buffered internally or immediately scheduled depending on system load.
-Returns PMHW_OK or PMHW_NO_HW_CONN.
+Returns true if successful, false if timed out.
 */
-pmhw_retval_t pmhw_schedule(const pmhw_txn_t *txn);
-
-/*
-Trigger all enqueued transactions to be submitted to the scheduling core.
-Only relevant if using a simulated transaction driver.
-Returns PMHW_OK or PMHW_NO_HW_CONN.
-*/
-pmhw_retval_t pmhw_trigger_simulated_driver();
-
-/*
-Force the scheduler to attempt scheduling immediately.
-Useful when system is idle but fewer than the normal batch size of transactions are available.
-Returns PMHW_OK or PMHW_ILLEGAL_OP if unsupported.
-*/
-pmhw_retval_t pmhw_force_trigger_scheduling();
+bool pmhw_schedule(int client_id, const txn_t *txn);
 
 /*
 Poll for a scheduled transaction assigned to a puppet.
 If a transaction becomes ready, fills in transactionId and puppetId.
 May return PMHW_TIMEOUT if no transaction is ready within a timeout window.
-Returns PMHW_OK on success.
+Returns true if got a transaction, false if timed out.
 */
-pmhw_retval_t pmhw_poll_scheduled(int *transactionId, int *puppetId);
+bool pmhw_poll_scheduled(txn_id_t *txn_id);
 
 /*
 Report that a previously assigned transaction has been completed by a puppet.
 This signals the scheduler that the puppet is now idle and ready for new work.
-Returns PMHW_OK or PMHW_ILLEGAL_OP if called improperly.
 */
-pmhw_retval_t pmhw_report_done(int transactionId, int puppetId);
+void pmhw_report_done(int worker_id, txn_id_t txn_id);
 
 #ifdef __cplusplus
 }

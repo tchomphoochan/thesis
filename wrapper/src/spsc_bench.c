@@ -37,7 +37,7 @@ typedef struct {
   uint64_t timestamp;
 } GenericItem;
 
-SPSC_QUEUE_IMPL(GenericItem, GenericQueue)
+SPSC_QUEUE_IMPL(GenericItem, GenericQueue, GenericQueue)
 GenericQueue queue;
 static volatile bool running = true;
 static double cpu_ghz = 1.0;
@@ -79,7 +79,7 @@ void *producer_thread_tp(void *arg) {
 
   while (running) {
     item.timestamp = 0;
-    if (spsc_enqueue_GenericQueue(&queue, &item)) {
+    if (GenericQueue_enq(&queue, item)) {
       ctx->produced++;
     }
   }
@@ -92,7 +92,7 @@ void *consumer_thread_tp(void *arg) {
   GenericItem item;
 
   while (running) {
-    if (spsc_dequeue_GenericQueue(&queue, &item)) {
+    if (GenericQueue_deq(&queue, &item)) {
       ctx->consumed++;
     }
   }
@@ -105,7 +105,7 @@ void run_throughput_test(int payload_size) {
   ctx.produced = 0;
   ctx.consumed = 0;
 
-  spsc_queue_init_GenericQueue(&queue, QUEUE_CAPACITY);
+  GenericQueue_init(&queue, QUEUE_CAPACITY);
   running = true;
 
   pthread_t producer, consumer;
@@ -134,7 +134,7 @@ void run_throughput_test(int payload_size) {
   printf(" bits/sec)\n");
   printf("Loss (enqueue fail) : %.2f%%\n\n", 100.0 * (ctx.produced - ctx.consumed) / (ctx.produced + 1));
 
-  spsc_queue_free_GenericQueue(&queue);
+  GenericQueue_free(&queue);
   free(ctx.buffer);
 }
 
@@ -147,7 +147,7 @@ void *producer_thread_lat(void *arg) {
   while (running) {
     unsigned aux;
     item.timestamp = __rdtscp(&aux);
-    if (spsc_enqueue_GenericQueue(&queue, &item)) {
+    if (GenericQueue_enq(&queue, item)) {
       ctx->produced++;
     }
   }
@@ -160,7 +160,7 @@ void *consumer_thread_lat(void *arg) {
   GenericItem item;
 
   while (running) {
-    if (spsc_dequeue_GenericQueue(&queue, &item)) {
+    if (GenericQueue_deq(&queue, &item)) {
       unsigned aux;
       uint64_t now = __rdtscp(&aux);
       uint64_t lat = now - item.timestamp;
@@ -220,7 +220,7 @@ void run_latency_test(int payload_size) {
   ctx.produced = 0;
   ctx.consumed = 0;
 
-  spsc_queue_init_GenericQueue(&queue, QUEUE_CAPACITY);
+  GenericQueue_init(&queue, QUEUE_CAPACITY);
   running = true;
 
   pthread_t producer, consumer;
@@ -254,7 +254,7 @@ void run_latency_test(int payload_size) {
 
   print_latency_stats(ctx.latencies, count);
 
-  spsc_queue_free_GenericQueue(&queue);
+  GenericQueue_free(&queue);
   free(ctx.buffer);
   free(ctx.latencies);
 }

@@ -82,7 +82,7 @@ CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthr
 INCLUDES = $(wildcard $(INCLUDE_DIR)/*.h)
 
 COMP = 
-SOURCES =
+SOURCES = $(SRC_DIR)/pmlog.c
 CONNECTAL_DEPS =
 
 ifeq ($(BOARD), sim)
@@ -127,6 +127,8 @@ output: $(OBJ)
 	@mkdir -p $(OUTPUT_DIR)
 	@cp $(OBJ) $(OUTPUT_DIR)/
 	@cp $(INCLUDE_DIR)/pmhw.h $(OUTPUT_DIR)/
+	@cp $(INCLUDE_DIR)/pmlog.h $(OUTPUT_DIR)/
+	@cp $(INCLUDE_DIR)/pmutils.h $(OUTPUT_DIR)/
 	@if [ -n "$(CONNECTAL_DEPS)" ]; then \
 	  cp $(CONNECTAL_DEPS) $(OUTPUT_DIR)/; \
 	fi
