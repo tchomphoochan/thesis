@@ -128,7 +128,7 @@ void pmhw_init(int num_clients_, int num_puppets_) {
   EXPECT_OK(pthread_create(&scheduler_thread, NULL, scheduler_loop, NULL) == 0);
 }
 
-void pmhw_cleanup() {
+void pmhw_shutdown() {
   ASSERT(scheduler_running);
 
   EXPECT_OK(pthread_join(scheduler_thread, NULL) == 0);

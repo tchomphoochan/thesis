@@ -1,8 +1,8 @@
-#pragma once
-
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+
+#pragma once
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -13,6 +13,7 @@
 #include <sys/sysinfo.h>
 #include <unistd.h>
 #include <time.h>
+#include <sched.h>
 #include <x86intrin.h>
 
 static pthread_mutex_t _stderr_mutex = PTHREAD_MUTEX_INITIALIZER;

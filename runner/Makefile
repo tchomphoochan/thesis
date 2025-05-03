@@ -26,14 +26,16 @@ endif
 .PHONY: all
 all: $(BIN_DIR)/main $(BIN_DIR)/analyze
 
+MAIN_SOURCES = $(addprefix $(SRC_DIR)/, main.c workload.c)
+
 ifeq ($(BOARD), )
 .PHONY: $(BIN_DIR)/main
 $(BIN_DIR)/main:
 	$(error BOARD variable is not defined, aborting build)
 else
-$(BIN_DIR)/main: $(SRC_DIR)/main.c $(PMHW_FILES) $(BIN_DIR)/board.txt 
+$(BIN_DIR)/main: $(MAIN_SOURCES) $(PMHW_FILES) $(BIN_DIR)/board.txt 
 	@mkdir -p bin
-	$(CC) $(CFLAGS) $< $(LIB_DEPS) -o $@
+	$(CC) $(CFLAGS) $(MAIN_SOURCES) $(LIB_DEPS) -o $@
 endif
 
 # Check whether BOARD equals existing board.txt. If not, make this target PHONY to force it to run,

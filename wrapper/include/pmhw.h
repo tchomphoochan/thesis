@@ -13,7 +13,7 @@ Supported sizes
 */
 #define MAX_CLIENTS 1
 #define MAX_PUPPETS 32
-#define SCHEDULER_CORE_ID 2
+#define SCHEDULER_CORE_ID 3
 #define MAX_PENDING_PER_CLIENT 128
 #define MAX_ACTIVE 128
 #define MAX_SCHED_OUT 128
@@ -65,7 +65,7 @@ void pmhw_init(int num_clients, int num_puppets);
 /*
 Clean up Puppetmaster.
 */
-void pmhw_cleanup();
+void pmhw_shutdown();
 
 /*
 Submit a new transaction descriptor to Puppetmaster.

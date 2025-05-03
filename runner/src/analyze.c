@@ -13,6 +13,10 @@
  *         client throughput, and optional ideal/efficiency lines.
  *********************************************************************/
 
+/*
+TODO: Make use of workload.h and pmlog.h so we don't duplicate work
+*/
+
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
