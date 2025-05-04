@@ -101,23 +101,23 @@ static int compare_events(const void *a, const void *b) {
 
 void pmlog_write(FILE *f) {
   qsort(pmlog_evt_buf, num_events, sizeof(pmlog_evt_t), compare_events);
-  (void) fwrite(&num_events, sizeof(int), 1, f);
-  (void) fwrite(&base_tsc, sizeof(uint64_t), 1, f);
-  (void) fwrite(&cpu_freq, sizeof(double), 1, f);
-  (void) fwrite(pmlog_evt_buf, sizeof(pmlog_evt_t), num_events, f);
+  fwrite(&num_events, sizeof(int), 1, f);
+  fwrite(&base_tsc, sizeof(uint64_t), 1, f);
+  fwrite(&cpu_freq, sizeof(double), 1, f);
+  fwrite(pmlog_evt_buf, sizeof(pmlog_evt_t), num_events, f);
 }
 
 int pmlog_read(FILE *f, double *_cpu_freq, uint64_t *_base_tsc) {
-  (void) fread(&num_events, sizeof(int), 1, f);
-  (void) fread(&base_tsc, sizeof(uint64_t), 1, f);
-  (void) fread(&cpu_freq, sizeof(double), 1, f);
+  ASSERT(fread(&num_events, sizeof(int), 1, f));
+  ASSERT(fread(&base_tsc, sizeof(uint64_t), 1, f));
+  ASSERT(fread(&cpu_freq, sizeof(double), 1, f));
   if (_cpu_freq) *_cpu_freq = cpu_freq;
   if (_base_tsc) *_base_tsc = base_tsc;
   if (num_events > max_num_events) {
     pmlog_evt_buf = (pmlog_evt_t*) realloc(pmlog_evt_buf, num_events * sizeof(pmlog_evt_t));
     max_num_events = num_events;
   }
-  (void) fread(pmlog_evt_buf, sizeof(pmlog_evt_t), num_events, f);
+  ASSERT(fread(pmlog_evt_buf, sizeof(pmlog_evt_t), num_events, f));
   return num_events;
 }
 
