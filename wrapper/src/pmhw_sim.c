@@ -70,12 +70,12 @@ static void *scheduler_loop(void *arg) {
 
     // Drain pending queue
     for (int client = 0; client < num_clients; ++client) {
+      // No space to schedule, break
+      if (num_active_txns >= MAX_ACTIVE) {
+        break;
+      }
       txn_t txn;
       while (spsc_txn_peek(&pending_qs[client], &txn)) {
-        // No space to schedule, break
-        if (num_active_txns >= MAX_ACTIVE) {
-          break;
-        }
         // If conflict, also break
         if (conflicts_with_active(&txn)) {
           break;
@@ -89,11 +89,10 @@ static void *scheduler_loop(void *arg) {
         pmlog_record(txn.id, PMLOG_SCHED_READY, 0);
         ASSERT(spsc_txn_deq(&pending_qs[client], &txn));
         while (!spsc_tid_enq(&sched_q, txn.id));
-      }
 
-      // No space to schedule, break
-      if (num_active_txns >= MAX_ACTIVE) {
-        break;
+        if (num_active_txns >= MAX_ACTIVE) {
+          break;
+        }
       }
     }
   }
