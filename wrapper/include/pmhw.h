@@ -21,7 +21,7 @@ Supported sizes
 /*
 Maximum number of objects per transaction
 */
-#define PMHW_MAX_TXN_OBJS 16
+#define MAX_TXN_OBJS 16
 
 /*
 Object representation, supports up to 2^63 addresses
@@ -50,17 +50,17 @@ typedef struct {
   txn_id_t id;
   aux_data_t aux_data;
   size_t num_objs;
-  obj_id_t objs[PMHW_MAX_TXN_OBJS];
-  char _pad[(64*4 - sizeof(txn_id_t) - sizeof(aux_data_t) - sizeof(size_t) - sizeof(obj_id_t)*PMHW_MAX_TXN_OBJS) % 64];
+  obj_id_t objs[MAX_TXN_OBJS];
+  char _pad[(64*4 - sizeof(txn_id_t) - sizeof(aux_data_t) - sizeof(size_t) - sizeof(obj_id_t)*MAX_TXN_OBJS) % 64];
 } txn_t;
 
 // Helper function
 static inline bool check_txn_conflict(const txn_t *a, const txn_t *b) {
-  for (size_t i = 0; i < a->num_objs; i++) {
+  for (int i = 0; i < (int)a->num_objs; i++) {
     obj_id_t obj_a = a->objs[i] & ~(1ULL << 63);
     bool wr_a      = obj_is_write(a->objs[i]);
 
-    for (size_t j = 0; j < b->num_objs; j++) {
+    for (int j = 0; j < (int)b->num_objs; j++) {
       obj_id_t obj_b = b->objs[j] & ~(1ULL << 63);
       bool wr_b      = obj_is_write(b->objs[j]);
 
@@ -72,13 +72,13 @@ static inline bool check_txn_conflict(const txn_t *a, const txn_t *b) {
 }
 static inline void dump_txn(FILE *f, const txn_t *txn) {
   fprintf(f, "txn_t(id=%ld, aux_data=%ld, num_objs=%ld, reads={", txn->id, txn->aux_data, txn->num_objs);
-  for (int i = 0; i < txn->num_objs; ++i) {
+  for (int i = 0; i < (int)txn->num_objs; ++i) {
     obj_id_t obj = txn->objs[i] & ~(1ULL << 63);
     bool wr = obj_is_write(txn->objs[i]);
     if (!wr) fprintf(f, "%ld,", obj);
   }
   fprintf(f, "}, writes={");
-  for (int i = 0; i < txn->num_objs; ++i) {
+  for (int i = 0; i < (int)txn->num_objs; ++i) {
     obj_id_t obj = txn->objs[i] & ~(1ULL << 63);
     bool wr = obj_is_write(txn->objs[i]);
     if (wr) fprintf(f, "%ld,", obj);

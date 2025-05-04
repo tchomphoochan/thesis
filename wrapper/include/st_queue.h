@@ -7,6 +7,10 @@
 
 #include "pmutils.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ========== Helper Macro ==========
 #define _STQ_CAT(a, b) a##b
 #define STQ_CAT(a, b) _STQ_CAT(a, b)
@@ -72,3 +76,6 @@ static inline int STQ_CAT(PREFIX, _length)(TYPENAME *q) { \
   return (q->tail - q->head + q->capacity) & q->mask; \
 }
 
+#ifdef __cplusplus
+}
+#endif

@@ -9,6 +9,10 @@
 
 #include "pmutils.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ========== Helper Macro ==========
 #define _SPSC_CAT(a, b) a##b
 #define SPSC_CAT(a, b) _SPSC_CAT(a, b)
@@ -81,3 +85,6 @@ static inline bool SPSC_CAT(PREFIX, _deq)(TYPENAME *q, DATATYPE *item) { \
   return true; \
 }
 
+#ifdef __cplusplus
+}
+#endif

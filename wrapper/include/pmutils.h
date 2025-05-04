@@ -2,6 +2,10 @@
 #define _GNU_SOURCE
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #pragma once
 
 #include <stdarg.h>
@@ -39,8 +43,8 @@ static inline void log_message(const char *filename, int line, const char *color
 #define ERROR(...) log_message(__FILE__, __LINE__, "\033[1;31m", "ERROR", __VA_ARGS__)
 #define WARN(...)  log_message(__FILE__, __LINE__, "\033[1;33m", "WARN",  __VA_ARGS__)
 #define INFO(...)  log_message(__FILE__, __LINE__, "\033[1;37m", "INFO",  __VA_ARGS__)
-// #define DEBUG(...)  log_message(__FILE__, __LINE__, "\033[0;37m", "DEBUG",  __VA_ARGS__)
-#define DEBUG(...)  
+// #define DEBUG_MSG(...)  log_message(__FILE__, __LINE__, "\033[0;37m", "DEBUG",  __VA_ARGS__)
+#define DEBUG_MSG(...)  
 #define FATAL(...) do { ERROR(__VA_ARGS__); exit(1); } while (0)
 
 #define ASSERTF(condition, ...) do { if (!(condition)) { FATAL(__VA_ARGS__); } } while (0)
@@ -70,3 +74,7 @@ static inline double measure_cpu_freq() {
   double elapsed = (ts_end.tv_sec - ts_start.tv_sec) + (ts_end.tv_nsec - ts_start.tv_nsec) / 1e9;
   return (end - start) / elapsed;
 }
+
+#ifdef __cplusplus
+}
+#endif

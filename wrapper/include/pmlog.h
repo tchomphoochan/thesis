@@ -8,6 +8,10 @@
 #include <stdio.h>
 #include "pmhw.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
 Input queue handling + PCIe latency = from PMLOG_SUBMIT to PMLOG_INPUT_RECV
 HW queue, scheduling                = from PMLOG_INPUT_RECV to PMLOG_SCHED_RECV
@@ -44,3 +48,7 @@ int pmlog_read(FILE *f, double *cpu_freq, uint64_t *base_tsc);
 void pmlog_dump_text(FILE *f);
 
 extern pmlog_evt_t *pmlog_evt_buf;
+
+#ifdef __cplusplus
+}
+#endif

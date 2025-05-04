@@ -58,12 +58,12 @@ static void *scheduler_loop(void *arg) {
     // Drain done queue
     for (int puppet = 0; puppet < num_puppets; ++puppet) {
       if (stq_txn_empty(&active_txns[puppet])) {
-        DEBUG("skipping puppet %d done queue because no active txns", puppet);
+        DEBUG_MSG("skipping puppet %d done queue because no active txns", puppet);
         continue;
       }
       txn_id_t txn_id;
       while (spsc_tid_deq(&done_qs[puppet], &txn_id)) {
-        DEBUG("done queue of puppet %d has tid %d", puppet, txn_id);
+        DEBUG_MSG("done queue of puppet %d has tid %d", puppet, txn_id);
         // find the transaction in active list
         // we expect the worker to return transaction in FIFO order
         txn_t txn;
@@ -77,37 +77,37 @@ static void *scheduler_loop(void *arg) {
     for (int client = 0; client < num_clients; ++client) {
       // No space to schedule, break
       if (stq_txn_full(&active_txns[current_puppet_id])) {
-        DEBUG("active_txn for current puppet %d is full, so no more scheduling", current_puppet_id);
+        DEBUG_MSG("active_txn for current puppet %d is full, so no more scheduling", current_puppet_id);
         break;
       }
 
       txn_t txn;
-      DEBUG("now peeking transaction in pending queue");
+      DEBUG_MSG("now peeking transaction in pending queue");
       while (spsc_txn_peek(&pending_qs[client], &txn)) {
-        DEBUG("found a transaction id %d", txn.id);
+        DEBUG_MSG("found a transaction id %d", txn.id);
         // If conflict, also break
         if (conflicts_with_active(&txn)) {
-          DEBUG("it conflicts");
+          DEBUG_MSG("it conflicts");
           break;
         }
 
         // If successfully scheduled, then must put it in our active list
         ASSERT(spsc_txn_deq(&pending_qs[client], &txn));
         ASSERT(stq_txn_enq(&active_txns[current_puppet_id], txn));
-        DEBUG("removed from pending, enqueued to active");
+        DEBUG_MSG("removed from pending, enqueued to active");
 
         // Log and send message to the user
         pmlog_record(txn.id, PMLOG_SCHED_READY, current_puppet_id);
-        DEBUG("enqueing to scheuled queue of %d", current_puppet_id);
+        DEBUG_MSG("enqueing to scheuled queue of %d", current_puppet_id);
         ASSERT(spsc_tid_enq(&sched_qs[current_puppet_id], &txn.id));
 
         // Move to next puppet in round robin oder
         current_puppet_id = (current_puppet_id + 1) % num_puppets;
-        DEBUG("now moving onto %d", current_puppet_id);
+        DEBUG_MSG("now moving onto %d", current_puppet_id);
 
         // No space to schedule more, break
         if (stq_txn_full(&active_txns[current_puppet_id])) {
-          DEBUG("puppet %d is full", current_puppet_id);
+          DEBUG_MSG("puppet %d is full", current_puppet_id);
           break;
         }
       }

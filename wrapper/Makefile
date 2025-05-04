@@ -15,6 +15,9 @@ $(GENERATED_DIR)/connectal.so:
 
 SIM_TYPES = sim
 
+.PHONY: all
+all: output
+
 # Generate Conectal-related files
 .PHONY: generate
 generate:
@@ -133,13 +136,6 @@ output: $(OBJ)
 	  cp $(CONNECTAL_DEPS) $(OUTPUT_DIR)/; \
 	fi
 	@echo Your output is available at $(OUTPUT_DIR)
-
-.PHONY: all
-all:
-ifneq ($(BOARD), $(filter $(BOARD), $(SIM_TYPES)))
-	make generate
-endif
-	make output
 
 # ---------------------
 # Extra stuff

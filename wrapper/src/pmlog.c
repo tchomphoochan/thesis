@@ -4,8 +4,14 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include <stdatomic.h>
 #include <inttypes.h>
+
+#ifdef __cplusplus
+#include <atomic>
+using namespace std;
+#else
+#include <stdatomic.h>
+#endif
 
 #include "pmlog.h"
 #include "pmutils.h"
@@ -27,7 +33,7 @@ void pmlog_init(int _max_num_events, int _sample_period, FILE *_live_dump) {
   sample_period = _sample_period;
   live_dump = _live_dump; // usually stdout
   num_events = 0;
-  pmlog_evt_buf = malloc(max_num_events * sizeof(pmlog_evt_t));
+  pmlog_evt_buf = (pmlog_evt_t*) malloc(max_num_events * sizeof(pmlog_evt_t));
   ASSERT(pmlog_evt_buf);
   pthread_mutex_init(&live_dump_mutex, NULL);
 }
@@ -95,29 +101,29 @@ static int compare_events(const void *a, const void *b) {
 
 void pmlog_write(FILE *f) {
   qsort(pmlog_evt_buf, num_events, sizeof(pmlog_evt_t), compare_events);
-  fwrite(&num_events, sizeof(int), 1, f);
-  fwrite(&base_tsc, sizeof(uint64_t), 1, f);
-  fwrite(&cpu_freq, sizeof(double), 1, f);
-  fwrite(pmlog_evt_buf, sizeof(pmlog_evt_t), num_events, f);
+  (void) fwrite(&num_events, sizeof(int), 1, f);
+  (void) fwrite(&base_tsc, sizeof(uint64_t), 1, f);
+  (void) fwrite(&cpu_freq, sizeof(double), 1, f);
+  (void) fwrite(pmlog_evt_buf, sizeof(pmlog_evt_t), num_events, f);
 }
 
 int pmlog_read(FILE *f, double *_cpu_freq, uint64_t *_base_tsc) {
-  fread(&num_events, sizeof(int), 1, f);
-  fread(&base_tsc, sizeof(uint64_t), 1, f);
-  fread(&cpu_freq, sizeof(double), 1, f);
+  (void) fread(&num_events, sizeof(int), 1, f);
+  (void) fread(&base_tsc, sizeof(uint64_t), 1, f);
+  (void) fread(&cpu_freq, sizeof(double), 1, f);
   if (_cpu_freq) *_cpu_freq = cpu_freq;
   if (_base_tsc) *_base_tsc = base_tsc;
   if (num_events > max_num_events) {
-    pmlog_evt_buf = realloc(pmlog_evt_buf, num_events * sizeof(pmlog_evt_t));
+    pmlog_evt_buf = (pmlog_evt_t*) realloc(pmlog_evt_buf, num_events * sizeof(pmlog_evt_t));
     max_num_events = num_events;
   }
-  fread(pmlog_evt_buf, sizeof(pmlog_evt_t), num_events, f);
+  (void) fread(pmlog_evt_buf, sizeof(pmlog_evt_t), num_events, f);
   return num_events;
 }
 
 void pmlog_dump_text(FILE *f) {
   qsort(pmlog_evt_buf, num_events, sizeof(pmlog_evt_t), compare_events);
-  for (uint32_t i = 0; i < num_events; ++i) {
+  for (int i = 0; i < (int)atomic_load_explicit(&num_events, memory_order_relaxed); ++i) {
     dump_event_human(f, &pmlog_evt_buf[i]);
   }
 }
