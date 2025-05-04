@@ -39,6 +39,8 @@ static inline void log_message(const char *filename, int line, const char *color
 #define ERROR(...) log_message(__FILE__, __LINE__, "\033[1;31m", "ERROR", __VA_ARGS__)
 #define WARN(...)  log_message(__FILE__, __LINE__, "\033[1;33m", "WARN",  __VA_ARGS__)
 #define INFO(...)  log_message(__FILE__, __LINE__, "\033[1;37m", "INFO",  __VA_ARGS__)
+// #define DEBUG(...)  log_message(__FILE__, __LINE__, "\033[0;37m", "DEBUG",  __VA_ARGS__)
+#define DEBUG(...)  
 #define FATAL(...) do { ERROR(__VA_ARGS__); exit(1); } while (0)
 
 #define ASSERTF(condition, ...) do { if (!(condition)) { FATAL(__VA_ARGS__); } } while (0)

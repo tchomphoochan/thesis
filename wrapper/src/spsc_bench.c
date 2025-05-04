@@ -79,7 +79,7 @@ void *producer_thread_tp(void *arg) {
 
   while (running) {
     item.timestamp = 0;
-    if (GenericQueue_enq(&queue, item)) {
+    if (GenericQueue_enq(&queue, &item)) {
       ctx->produced++;
     }
   }
@@ -147,7 +147,7 @@ void *producer_thread_lat(void *arg) {
   while (running) {
     unsigned aux;
     item.timestamp = __rdtscp(&aux);
-    if (GenericQueue_enq(&queue, item)) {
+    if (GenericQueue_enq(&queue, &item)) {
       ctx->produced++;
     }
   }

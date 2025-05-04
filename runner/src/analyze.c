@@ -141,7 +141,7 @@ int main(int argc, char **argv)
   qsort(sched, sched_cnt, sizeof(*sched), compare_sched_evt);
 
   /* active list – at most num_puppets simultaneous */
-  int  active_ids[MAX_ACTIVE];
+  int  active_ids[MAX_ACTIVE_PER_PUPPET * MAX_PUPPETS];
   int  active_cnt = 0;
 
   int conflicts = 0;

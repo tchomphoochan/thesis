@@ -23,11 +23,10 @@
 #include "pmutils.h"
 #include "workload.h"
 
-#define MAIN_CORE 0
-#define CLIENT_CORE 1
-#define POLLER_CORE 2
-// #define SCHEDULER_CORE 3
-#define PUPPET_CORE_START 4
+// #define SCHEDULER_CORE 0
+#define MAIN_CORE 1
+#define CLIENT_CORE 2
+#define PUPPET_CORE_START 3
 
 /*
 Configuration
@@ -79,15 +78,11 @@ Worker thread state
 typedef struct {
   pthread_t thread;
   int id;
-  atomic_bool has_work;
-  txn_id_t txn_id;
   uint64_t num_completed;
 
   /* optional: explicit padding so sizeof(puppet_t) == 64  */
   char _pad[64 - (sizeof(pthread_t) +
                   sizeof(int) +
-                  sizeof(atomic_bool) +
-                  sizeof(txn_id_t) +
                   sizeof(uint64_t)) % 64];
 } puppet_t;
 
@@ -113,18 +108,9 @@ static void *puppet_thread(void *arg) {
   pin_thread_to_core(PUPPET_CORE_START + puppet_id);
 
   while (1) {
-    // Busy-wait loop for work assignment
-    // If no work is available, just spin here
-    if (!atomic_load_explicit(&puppet->has_work, memory_order_relaxed)) {
-      continue;
-    }
-
-    // Take out the work
-    int txn_id = puppet->txn_id;
-    atomic_store_explicit(&puppet->has_work, false, memory_order_release);
-    if (txn_id == -1) {
-      break;  // Exit condition if assigned -1 (shutdown signal)
-    }
+    // Poll for work assignment
+    txn_id_t txn_id;
+    if (!pmhw_poll_scheduled(puppet_id, &txn_id)) break;
 
     pmlog_record(txn_id, PMLOG_WORK_RECV, puppet_id);
 
@@ -145,43 +131,12 @@ static void *puppet_thread(void *arg) {
 }
 
 /*
-Thread to poll for scheduling decisions from hardware
-Whenever it sees a result, it assigns it to the correct worker.
-*/
-static void *poller_thread(void *arg) {
-  (void)arg;
-
-  pin_thread_to_core(POLLER_CORE);
-
-  while (atomic_load_explicit(&keep_polling, memory_order_relaxed)) {
-    // find free pupet
-    int puppet_id = -1;
-    for (int i = 0; i < num_puppets; ++i) {
-      if (!atomic_load_explicit(&puppets[i].has_work, memory_order_relaxed)) {
-        puppet_id = i;
-      }
-    }
-    if (puppet_id == -1) continue;
-
-    txn_id_t txn_id = 0;
-    bool found = pmhw_poll_scheduled(&txn_id);
-    if (!found) continue;
-
-    puppet_t *puppet = &puppets[puppet_id];
-
-    puppet->txn_id = txn_id;
-    atomic_store_explicit(&puppet->has_work, true, memory_order_release);
-  }
-  return NULL;
-}
-
-/*
 Client thread (submits transactions)
 */
 static void *client_thread(void *arg) {
   (void)arg;
 
-  pin_thread_to_core(1);
+  pin_thread_to_core(CLIENT_CORE);
   pmlog_start_timer(cpu_freq);
 
   for (int i = 0; i < workload->num_txns; ++i) {
@@ -245,9 +200,14 @@ static void parse_args(int argc, char **argv) {
   }
 
   if (log_filename[0] == '\0') {
-    WARN("Not logging");
-    sample_period = 0;
+    WARN("Logging to a file is disabled");
+    if (!live_dump && !dump_filename[0]) sample_period = 0;
   }
+
+  if ((live_dump || dump_filename[0]) && sample_period == 0) {
+    FATAL("Dumping requires sample_period > 0");
+  }
+
 }
 
 /*
@@ -273,17 +233,13 @@ int main(int argc, char *argv[]) {
 
   for (int i = 0; i < num_puppets; ++i) {
     puppets[i].id = i;
-    puppets[i].txn_id = -1;
-    atomic_store_explicit(&puppets[i].has_work, false, memory_order_release);
+    puppets[i].num_completed = 0;
     pthread_create(&puppets[i].thread, NULL, puppet_thread, &puppets[i]);
   }
 
   /*
-  Start poller and client
+  Start client
   */
-
-  pthread_t poller;
-  pthread_create(&poller, NULL, poller_thread, NULL);
 
   pthread_t client;
   pthread_create(&client, NULL, client_thread, NULL); // client_thread starts the timer
@@ -329,11 +285,7 @@ int main(int argc, char *argv[]) {
     pmhw_shutdown();
     atomic_store_explicit(&keep_polling, false, memory_order_relaxed);
     pthread_join(client, NULL);
-    pthread_join(poller, NULL);
     for (int i = 0; i < num_puppets; ++i) {
-      // send shutdown signals (txn_id==-1)
-      puppets[i].txn_id = -1ULL;
-      atomic_store_explicit(&puppets[i].has_work, true, memory_order_release);
       pthread_join(puppets[i].thread, NULL);
     }
   }

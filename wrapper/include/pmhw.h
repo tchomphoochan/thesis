@@ -13,9 +13,9 @@ Supported sizes
 */
 #define MAX_CLIENTS 1
 #define MAX_PUPPETS 16
-#define SCHEDULER_CORE_ID 3
-#define MAX_PENDING_PER_CLIENT 128
-#define MAX_ACTIVE MAX_PUPPETS
+#define SCHEDULER_CORE_ID 0
+#define MAX_PENDING_PER_CLIENT 64
+#define MAX_ACTIVE_PER_PUPPET 2
 #define MAX_SCHED_OUT 128
 
 /*
@@ -51,6 +51,7 @@ typedef struct {
   aux_data_t aux_data;
   size_t num_objs;
   obj_id_t objs[PMHW_MAX_TXN_OBJS];
+  char _pad[(64*4 - sizeof(txn_id_t) - sizeof(aux_data_t) - sizeof(size_t) - sizeof(obj_id_t)*PMHW_MAX_TXN_OBJS) % 64];
 } txn_t;
 
 // Helper function
@@ -85,7 +86,6 @@ static inline void dump_txn(FILE *f, const txn_t *txn) {
   fprintf(f, "}\n");
 }
 
-
 /*
 Interfaces
 */
@@ -108,16 +108,15 @@ void pmhw_schedule(int client_id, const txn_t *txn);
 /*
 Poll for a scheduled transaction assigned to a puppet.
 If a transaction becomes ready, fills in transactionId and puppetId.
-May return PMHW_TIMEOUT if no transaction is ready within a timeout window.
-Returns true if got a transaction, false if timed out.
+Return false if found no transaction.
 */
-bool pmhw_poll_scheduled(txn_id_t *txn_id);
+bool pmhw_poll_scheduled(int puppet_id, txn_id_t *txn_id);
 
 /*
 Report that a previously assigned transaction has been completed by a puppet.
 This signals the scheduler that the puppet is now idle and ready for new work.
 */
-void pmhw_report_done(int worker_id, txn_id_t txn_id);
+void pmhw_report_done(int puppet_id, txn_id_t txn_id);
 
 #ifdef __cplusplus
 }

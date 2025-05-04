@@ -77,8 +77,8 @@ SRC_DIR = ./src
 OBJ_DIR = ./obj/$(BOARD)
 INCLUDE_DIR = ./include
 
-CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthread -shared -fpic -g3
-CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O2 -Wall -pthread -shared -fpic -g3
+CXXFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O3 -Wall -pthread -shared -fpic -g2 -flto
+CFLAGS += -I$(INCLUDE_DIR) -I$(GENERATED_DIR) -L$(GENERATED_DIR) -O3 -Wall -pthread -shared -fpic -g2 -flto
 INCLUDES = $(wildcard $(INCLUDE_DIR)/*.h)
 
 COMP = 
@@ -126,7 +126,6 @@ OUTPUT_DIR = output/$(BOARD)
 output: $(OBJ)
 	@mkdir -p $(OUTPUT_DIR)
 	@cp $(OBJ) $(OUTPUT_DIR)/
-	@cp $(INCLUDE_DIR)/spsc_queue.h $(OUTPUT_DIR)/
 	@cp $(INCLUDE_DIR)/pmhw.h $(OUTPUT_DIR)/
 	@cp $(INCLUDE_DIR)/pmlog.h $(OUTPUT_DIR)/
 	@cp $(INCLUDE_DIR)/pmutils.h $(OUTPUT_DIR)/
