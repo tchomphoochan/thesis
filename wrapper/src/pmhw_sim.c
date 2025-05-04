@@ -102,7 +102,7 @@ static void *scheduler_loop(void *arg) {
 // === Interface Implementations ===
 
 void pmhw_init(int num_clients_, int num_puppets_) {
-  ASSERT(!atomic_load_explicit(&scheduler_running, memory_order_relaxed));
+  ASSERT(!atomic_load_explicit(&scheduler_running, memory_order_acquire));
   num_clients = num_clients_;
   num_puppets = num_puppets_;
   ASSERT(num_clients <= MAX_CLIENTS);
@@ -114,16 +114,16 @@ void pmhw_init(int num_clients_, int num_puppets_) {
   spsc_tid_init(&sched_q, MAX_SCHED_OUT);
 
   // Mark the scheduler running
-  atomic_store_explicit(&scheduler_running, true, memory_order_relaxed);
+  atomic_store_explicit(&scheduler_running, true, memory_order_release);
   
   // Start the loop
   EXPECT_OK(pthread_create(&scheduler_thread, NULL, scheduler_loop, NULL) == 0);
 }
 
 void pmhw_shutdown() {
-  ASSERT(atomic_load_explicit(&scheduler_running, memory_order_relaxed));
+  ASSERT(atomic_load_explicit(&scheduler_running, memory_order_acquire));
 
-  atomic_store_explicit(&scheduler_running, false, memory_order_relaxed);
+  atomic_store_explicit(&scheduler_running, false, memory_order_release);
   EXPECT_OK(pthread_join(scheduler_thread, NULL) == 0);
 
   for (int i = 0; i < MAX_CLIENTS; ++i) spsc_txn_free(&pending_qs[i]);
@@ -133,14 +133,12 @@ void pmhw_shutdown() {
 
 void pmhw_schedule(int client_id, const txn_t *txn) {
   ASSERT(txn);
-  if (!atomic_load_explicit(&scheduler_running, memory_order_relaxed)) return;
   pmlog_record(txn->id, PMLOG_SUBMIT, -1LLU);
   while (!spsc_txn_enq(&pending_qs[client_id], *txn));
 }
 
 bool pmhw_poll_scheduled(txn_id_t *txn_id) {
   ASSERT(txn_id);
-  if (!atomic_load_explicit(&scheduler_running, memory_order_relaxed)) return false;
   return spsc_tid_deq(&sched_q, txn_id);
 }
 
