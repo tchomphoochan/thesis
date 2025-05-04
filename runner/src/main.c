@@ -42,7 +42,7 @@ Configuration
 #define DEF_DUMP_FILE       ""
 
 static const char *usage =
-  "Usage: puppetmaster [options]\n"
+  "Usage: main [options]\n"
   "  --input FILE         Transaction CSV file (default transactions.csv)\n"
   "  --timeout SEC        Benchmark wall‑clock duration (default 10)\n"
   "  --work-us USEC       Simulated work per txn (default 0)\n"

@@ -13,5 +13,5 @@ if [ "$BOARD" = "verilator" ]; then
 else
   NOPROGRAM=1
 fi
-LD_LIBRARY_PATH=./deps/wrapper/output/$BOARD
-./bin/main $@
+LD_LIBRARY_PATH=./deps/wrapper/output/$BOARD:$LD_LIBRARY_PATH
+sudo env LD_LIBRARY_PATH=$LD_LIBRARY_PATH ./bin/main $@

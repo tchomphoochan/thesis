@@ -15,6 +15,10 @@
 #include "spsc_queue.h"
 #include "st_queue.h"
 
+// Sets how often to check for shutdown
+// This didn't seem to make a difference so I disabled it.
+#define RUNNING_CHECK_SHIFT 0
+
 SPSC_QUEUE_IMPL(txn_id_t, spsc_tid, spsc_tid_t)
 SPSC_QUEUE_IMPL(txn_t, spsc_txn, spsc_txn_t)
 ST_QUEUE_IMPL(txn_t, stq_txn, stq_txn_t)
@@ -53,7 +57,7 @@ static void *scheduler_loop(void *arg) {
   int current_puppet_id = 0;
   int check_cnt = 0;
 
-  while (check_cnt++ % (1<<24) == 0 || atomic_load_explicit(&scheduler_running, memory_order_relaxed)) {
+  while (check_cnt++ % (1<<RUNNING_CHECK_SHIFT) != 0 || atomic_load_explicit(&scheduler_running, memory_order_relaxed)) {
 
     // Drain done queue
     for (int puppet = 0; puppet < num_puppets; ++puppet) {
@@ -160,7 +164,7 @@ void pmhw_schedule(int client_id, const txn_t *txn) {
 bool pmhw_poll_scheduled(int puppet_id, txn_id_t *txn_id) {
   ASSERT(txn_id);
   uint32_t cnt = 0;
-  while (cnt++ % (1<<24) == 0 || atomic_load_explicit(&scheduler_running, memory_order_relaxed)) {
+  while (cnt++ % (1<<RUNNING_CHECK_SHIFT) != 0 || atomic_load_explicit(&scheduler_running, memory_order_relaxed)) {
     if (spsc_tid_deq(&sched_qs[puppet_id], txn_id)) return true;
   }
   return false;
