@@ -14,9 +14,8 @@ Supported sizes
 #define MAX_CLIENTS 1
 #define MAX_PUPPETS 16
 #define SCHEDULER_CORE_ID 0
-#define MAX_PENDING_PER_CLIENT 64
-#define MAX_ACTIVE_PER_PUPPET 2
-#define MAX_SCHED_OUT 128
+#define MAX_PENDING_PER_CLIENT 32
+#define MAX_ACTIVE_PER_PUPPET 32
 
 /*
 Maximum number of objects per transaction
