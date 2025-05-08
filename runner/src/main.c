@@ -67,6 +67,7 @@ static char workload_filename[1000] = DEF_WORKLOAD_FILE;
 
 static bool status_updates = false;
 static bool live_dump      = false;
+static bool limit_client   = false; // limit client throughput for better latency measurements
 
 static double   cpu_freq        = 0.0;  // set at beginning of main
 static uint64_t work_sim_cycles = 0;    // ditto
@@ -116,10 +117,9 @@ static void *puppet_thread(void *arg) {
 
     // Simulate transaction processing work by busy looping
     uint64_t start, end;
-    unsigned int _;
-    start = __rdtscp(&_);
+    start = __rdtsc();
     do {
-      end = __rdtscp(&_);
+      end = __rdtsc();
     } while (end - start < work_sim_cycles);
 
     pmhw_report_done(puppet_id, txn_id);
@@ -139,8 +139,19 @@ static void *client_thread(void *arg) {
   pin_thread_to_core(CLIENT_CORE);
   pmlog_start_timer(cpu_freq);
 
+  uint64_t client_sim_cycles = work_sim_cycles;
+  if (work_sim_cycles == 0) client_sim_cycles = cpu_freq * 1e-6 / num_puppets;
+
   for (int i = 0; i < workload->num_txns; ++i) {
     pmhw_schedule(0, &workload->txns[i]);
+
+    if (limit_client && client_sim_cycles > 0) {
+      uint64_t start, end;
+      start = __rdtsc();
+      do {
+        end = __rdtsc();
+      } while (end - start < client_sim_cycles);
+    }
   }
 
   return NULL;
@@ -166,6 +177,7 @@ static void parse_args(int argc, char **argv) {
     {"dump",         required_argument, 0, 'd'},
     {"status",       no_argument,       0,  1 },
     {"live-dump",    no_argument,       0,  2 },
+    {"limit",        no_argument,       0,  3 },
     {"help",         no_argument,       0, 'h'},
     {0,0,0,0}
   };
@@ -184,6 +196,7 @@ static void parse_args(int argc, char **argv) {
       case 'd': strncpy(dump_filename, optarg, sizeof dump_filename - 1); break;
       case  1 : status_updates = true;  break;
       case  2 : live_dump      = true;  break;
+      case  3 : limit_client   = true;  break;
       case 'h':
       default:  fputs(usage, stderr); exit(0);
     }

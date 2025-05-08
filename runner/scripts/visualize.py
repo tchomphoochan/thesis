@@ -13,6 +13,8 @@ import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 
+USE_MARKERS = False
+
 # Stage colors for consistency across all graphs
 COLORS = {
     'submit': '#1f77b4',    # blue
@@ -252,6 +254,7 @@ def plot_latency_histogram(data: Dict[str, Any], latency_type: str, output_file:
     
     # Create figure with two y-axes
     fig, ax1 = plt.subplots(figsize=FIG_SIZE, dpi=DPI)
+    # ax1.set_yscale('log')
     ax2 = ax1.twinx()
     
     # Get consistent color for this latency type
@@ -272,19 +275,20 @@ def plot_latency_histogram(data: Dict[str, Any], latency_type: str, output_file:
     ax2.plot(centers_converted, cdfs, 'r-', linewidth=2, label='CDF')
     
     # Add markers for key percentiles (50%, 95%, 99%)
-    percentiles = [0.5, 0.95, 0.99]
-    for p in percentiles:
-        idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
-        if idx < len(centers_converted):
-            x = centers_converted[idx]
-            y = cdfs[idx]
-            ax2.plot(x, y, 'ro', markersize=5)
-            ax2.annotate(f'{int(p*100)}%', 
-                        xy=(x, y),
-                        xytext=(10, -10 if p < 0.9 else 10), 
-                        textcoords='offset points',
-                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
-                        fontsize=8)
+    if USE_MARKERS:
+        percentiles = [0.5, 0.95, 0.99]
+        for p in percentiles:
+            idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
+            if idx < len(centers_converted):
+                x = centers_converted[idx]
+                y = cdfs[idx]
+                ax2.plot(x, y, 'ro', markersize=5)
+                ax2.annotate(f'{int(p*100)}%', 
+                            xy=(x, y),
+                            xytext=(10, -10 if p < 0.9 else 10), 
+                            textcoords='offset points',
+                            arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
+                            fontsize=8)
     
     # Set labels and title
     ax1.set_xlabel(f'Latency ({unit_str})', fontsize=12)
@@ -349,19 +353,20 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
         ax2.plot(centers_converted, cdfs, 'r-', linewidth=2, label='CDF')
         
         # Add percentile markers
-        percentiles = [0.5, 0.95, 0.99]
-        for p in percentiles:
-            idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
-            if idx < len(centers_converted):
-                x = centers_converted[idx]
-                y = cdfs[idx]
-                ax2.plot(x, y, 'ro', markersize=5)
-                ax2.annotate(f'{int(p*100)}%', 
-                            xy=(x, y),
-                            xytext=(10, -10 if p < 0.9 else 10), 
-                            textcoords='offset points',
-                            arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
-                            fontsize=8)
+        if USE_MARKERS:
+            percentiles = [0.5, 0.95, 0.99]
+            for p in percentiles:
+                idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
+                if idx < len(centers_converted):
+                    x = centers_converted[idx]
+                    y = cdfs[idx]
+                    ax2.plot(x, y, 'ro', markersize=5)
+                    ax2.annotate(f'{int(p*100)}%', 
+                                xy=(x, y),
+                                xytext=(10, -10 if p < 0.9 else 10), 
+                                textcoords='offset points',
+                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
+                                fontsize=8)
         
         ax1.set_xlabel(f'Latency ({unit_str})', fontsize=12)
         ax1.set_ylabel('Frequency', fontsize=12)
@@ -427,19 +432,20 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
             ax2.plot(centers_converted, cdfs, 'r-', linewidth=2, label='CDF')
             
             # Add percentile markers
-            percentiles = [0.5, 0.95, 0.99]
-            for p in percentiles:
-                idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
-                if idx < len(centers_converted):
-                    x = centers_converted[idx]
-                    y = cdfs[idx]
-                    ax2.plot(x, y, 'ro', markersize=5)
-                    ax2.annotate(f'{int(p*100)}%', 
-                                xy=(x, y),
-                                xytext=(10, -10 if p < 0.9 else 10), 
-                                textcoords='offset points',
-                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
-                                fontsize=8)
+            if USE_MARKERS:
+                percentiles = [0.5, 0.95, 0.99]
+                for p in percentiles:
+                    idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
+                    if idx < len(centers_converted):
+                        x = centers_converted[idx]
+                        y = cdfs[idx]
+                        ax2.plot(x, y, 'ro', markersize=5)
+                        ax2.annotate(f'{int(p*100)}%', 
+                                    xy=(x, y),
+                                    xytext=(10, -10 if p < 0.9 else 10), 
+                                    textcoords='offset points',
+                                    arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
+                                    fontsize=8)
             
             ax1.set_xlabel(f'Latency ({unit_str})', fontsize=12)
             ax1.set_ylabel('Frequency', fontsize=12)

@@ -15,7 +15,7 @@ static const bool complain_missing  = false;
 static const bool complain_order    = true;
 static const bool complain_conflict = true;
 
-static const int num_buckets = 32;
+static const int num_buckets = 64;
 
 // Time unit definitions for appropriate histogram scaling
 typedef enum {
@@ -25,8 +25,8 @@ typedef enum {
   UNIT_S  = 3,  // Seconds
 } time_unit_t;
 
-static const double fraction_warmup_time = 0.2;
-static const double fraction_cooldown_time = 0.2;
+static const double fraction_warmup_time = 0.4;
+static const double fraction_cooldown_time = 0.4;
 static const int num_throughput_windows = 50;
 
 // Outlier removal configuration
