@@ -57,6 +57,41 @@ typedef struct {
   double cdf;     // Cumulative distribution function value
 } histogram_bucket_t;
 
+// Helper function to initialize histogram buckets
+void init_histogram(histogram_bucket_t *hist, double min_val, double max_val) {
+  double bucket_width = (max_val - min_val) / num_buckets;
+  for (int i = 0; i < num_buckets; i++) {
+    hist[i].center = min_val + bucket_width * (i + 0.5);
+    hist[i].count = 0;
+    hist[i].cdf = 0.0;
+  }
+}
+
+// Helper function to populate histogram
+void populate_histogram(histogram_bucket_t *hist, uint64_t *latencies, 
+                        double min_val, double max_val, int start_idx, int end_idx, double cpu_freq) {
+  double bucket_width = (max_val - min_val) / num_buckets;
+  for (int i = start_idx; i <= end_idx; i++) {
+    double val_s = latencies[i] / cpu_freq;
+    int bucket = (val_s - min_val) / bucket_width;
+    if (bucket < 0) bucket = 0;
+    if (bucket >= num_buckets) bucket = num_buckets - 1;
+    hist[bucket].count++;
+  }
+
+  // Calculate CDF
+  int total = 0;
+  for (int i = 0; i < num_buckets; i++) {
+    total += hist[i].count;
+  }
+
+  int cumulative = 0;
+  for (int i = 0; i < num_buckets; i++) {
+    cumulative += hist[i].count;
+    hist[i].cdf = (double)cumulative / total;
+  }
+}
+
 int main(int argc, char *argv[])
 {
   if (argc != 5) {
@@ -408,41 +443,6 @@ int main(int argc, char *argv[])
   histogram_bucket_t *recv_done_hist = (histogram_bucket_t*) calloc(num_buckets, sizeof(histogram_bucket_t));
   histogram_bucket_t *done_cleanup_hist = (histogram_bucket_t*) calloc(num_buckets, sizeof(histogram_bucket_t));
 
-  // Helper function to initialize histogram buckets
-  void init_histogram(histogram_bucket_t *hist, double min_val, double max_val) {
-    double bucket_width = (max_val - min_val) / num_buckets;
-    for (int i = 0; i < num_buckets; i++) {
-      hist[i].center = min_val + bucket_width * (i + 0.5);
-      hist[i].count = 0;
-      hist[i].cdf = 0.0;
-    }
-  }
-
-  // Helper function to populate histogram
-  void populate_histogram(histogram_bucket_t *hist, uint64_t *latencies, 
-                          double min_val, double max_val, int start_idx, int end_idx) {
-    double bucket_width = (max_val - min_val) / num_buckets;
-    for (int i = start_idx; i <= end_idx; i++) {
-      double val_s = latencies[i] / cpu_freq;
-      int bucket = (val_s - min_val) / bucket_width;
-      if (bucket < 0) bucket = 0;
-      if (bucket >= num_buckets) bucket = num_buckets - 1;
-      hist[bucket].count++;
-    }
-
-    // Calculate CDF
-    int total = 0;
-    for (int i = 0; i < num_buckets; i++) {
-      total += hist[i].count;
-    }
-
-    int cumulative = 0;
-    for (int i = 0; i < num_buckets; i++) {
-      cumulative += hist[i].count;
-      hist[i].cdf = (double)cumulative / total;
-    }
-  }
-
   // Initialize and populate histograms
   init_histogram(e2e_hist, min_e2e_s, max_e2e_s);
   init_histogram(submit_sched_hist, min_submit_sched_s, max_submit_sched_s);
@@ -450,11 +450,11 @@ int main(int argc, char *argv[])
   init_histogram(recv_done_hist, min_recv_done_s, max_recv_done_s);
   init_histogram(done_cleanup_hist, min_done_cleanup_s, max_done_cleanup_s);
 
-  populate_histogram(e2e_hist, submit_done_latencies, min_e2e_s, max_e2e_s, lower_idx, upper_idx);
-  populate_histogram(submit_sched_hist, submit_sched_latencies, min_submit_sched_s, max_submit_sched_s, lower_idx, upper_idx);
-  populate_histogram(sched_recv_hist, sched_recv_latencies, min_sched_recv_s, max_sched_recv_s, lower_idx, upper_idx);
-  populate_histogram(recv_done_hist, recv_done_latencies, min_recv_done_s, max_recv_done_s, lower_idx, upper_idx);
-  populate_histogram(done_cleanup_hist, done_cleanup_latencies, min_done_cleanup_s, max_done_cleanup_s, lower_idx, upper_idx);
+  populate_histogram(e2e_hist, submit_done_latencies, min_e2e_s, max_e2e_s, lower_idx, upper_idx, cpu_freq);
+  populate_histogram(submit_sched_hist, submit_sched_latencies, min_submit_sched_s, max_submit_sched_s, lower_idx, upper_idx, cpu_freq);
+  populate_histogram(sched_recv_hist, sched_recv_latencies, min_sched_recv_s, max_sched_recv_s, lower_idx, upper_idx, cpu_freq);
+  populate_histogram(recv_done_hist, recv_done_latencies, min_recv_done_s, max_recv_done_s, lower_idx, upper_idx, cpu_freq);
+  populate_histogram(done_cleanup_hist, done_cleanup_latencies, min_done_cleanup_s, max_done_cleanup_s, lower_idx, upper_idx, cpu_freq);
 
   /*
   Calculate average throughput for steady-state period (excluding warmup/cooldown)
