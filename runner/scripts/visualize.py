@@ -38,8 +38,8 @@ STAGE_NAMES = {
 }
 
 # Figure sizes and DPI
-FIG_SIZE = (10, 6)
-DPI = 100
+FIG_SIZE = (6.4, 4)
+DPI = 200
 
 # Time unit definitions and conversion factors
 TIME_UNITS = {

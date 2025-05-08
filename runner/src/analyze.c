@@ -25,8 +25,8 @@ typedef enum {
   UNIT_S  = 3,  // Seconds
 } time_unit_t;
 
-static const double fraction_warmup_time = 0.1;
-static const double fraction_cooldown_time = 0.1;
+static const double fraction_warmup_time = 0.2;
+static const double fraction_cooldown_time = 0.2;
 static const int num_throughput_windows = 50;
 
 // Outlier removal configuration
