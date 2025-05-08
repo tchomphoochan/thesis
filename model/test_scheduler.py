@@ -47,7 +47,7 @@ def graph_scale_num_objs():
     filename = f"output-scheduler-{workload_type.lower()}-{NUM_TXNS}x{NUM_OBJS_PER_TXN}.svg"
     print(f"Rendering: {filename}", file=sys.stderr)
     begin = time.time()
-    plt.figure()
+    plt.figure(figsize=(6.4, 4), dpi=200)
     plt.title(f"{workload_type} workload: {NUM_OBJS_PER_TXN} objs/txn, {omega*100:.0f}% probability of writing")
     plt.xlabel("Number of records in the database")
     plt.ylabel(f"Number of transactions scheduled (max possible: {NUM_TXNS})")

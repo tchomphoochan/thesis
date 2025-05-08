@@ -77,7 +77,7 @@ def graph_false_pos_rate():
 
     begin = time.time()
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(6.4, 4), dpi=200)
     ax.set_title("False positive rate of parallel bloom filters")
 
     ax.set_xlabel("Number of elements inserted ($n$)")
