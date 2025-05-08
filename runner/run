@@ -14,4 +14,4 @@ else
   NOPROGRAM=1
 fi
 LD_LIBRARY_PATH=$PWD/deps/wrapper/output/$BOARD/:$LD_LIBRARY_PATH
-sudo env LD_LIBRARY_PATH=$LD_LIBRARY_PATH ./bin/main $@
+env LD_LIBRARY_PATH=$LD_LIBRARY_PATH ./bin/main $@
