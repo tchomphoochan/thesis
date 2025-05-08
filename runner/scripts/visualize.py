@@ -200,6 +200,44 @@ def plot_throughput_combined(data: Dict[str, Any], output_file: str) -> None:
     print(f"Generated: {output_file}")
 
 
+def get_latency_type_color(latency_type: str) -> str:
+    """
+    Get the appropriate color for a latency type, ensuring consistency across all visualizations.
+    """
+    if '_' in latency_type:
+        # For compound types like 'submit_sched', use color of first stage
+        return COLORS[latency_type.split('_')[0]]
+    else:
+        return COLORS.get(latency_type, COLORS['e2e'])
+
+
+def process_histogram_data(hist_data, unit_id):
+    """
+    Process histogram data to improve quality, especially for short duration measurements.
+    Returns processed centers, counts, and cdfs.
+    """
+    centers = hist_data['centers']
+    counts = hist_data['counts']
+    cdfs = hist_data['cdfs']
+    
+    # Convert to appropriate units
+    centers_converted = []
+    for center in centers:
+        val, unit_str, unit_label = convert_time_with_unit(center, unit_id)
+        centers_converted.append(val)
+    
+    # For nanosecond-level data, improve histogram quality
+    if unit_id == 0:  # UNIT_NS
+        # Only keep bins with non-zero counts to reduce noise
+        valid_indices = [i for i, count in enumerate(counts) if count > 0]
+        if valid_indices:
+            centers_converted = [centers_converted[i] for i in valid_indices]
+            counts = [counts[i] for i in valid_indices]
+            cdfs = [cdfs[i] for i in valid_indices]
+    
+    return centers_converted, counts, cdfs, unit_id
+
+
 def plot_latency_histogram(data: Dict[str, Any], latency_type: str, output_file: str) -> None:
     """
     Plot latency histogram with CDF overlay for a specific latency type and save as SVG.
@@ -208,35 +246,38 @@ def plot_latency_histogram(data: Dict[str, Any], latency_type: str, output_file:
     hist_data = data[f'{latency_type}_histogram']
     unit_id = hist_data['unit']
     
+    # Process histogram data for better quality
+    centers_converted, counts, cdfs, unit_id = process_histogram_data(hist_data, unit_id)
+    val, unit_str, unit_label = convert_time_with_unit(0, unit_id)  # Just to get unit strings
+    
     # Create figure with two y-axes
     fig, ax1 = plt.subplots(figsize=FIG_SIZE, dpi=DPI)
     ax2 = ax1.twinx()
     
-    # Convert centers to appropriate unit
-    centers_converted = []
-    unit_str = ""
-    unit_label = ""
-    
-    for center in hist_data['centers']:
-        val, unit_str, unit_label = convert_time_with_unit(center, unit_id)
-        centers_converted.append(val)
+    # Get consistent color for this latency type
+    color = get_latency_type_color(latency_type)
     
     # Plot histogram bars
-    color = COLORS[latency_type] if latency_type in COLORS else COLORS['e2e']
-    bar_width = centers_converted[1]-centers_converted[0] if len(centers_converted) > 1 else 1
-    ax1.bar(centers_converted, hist_data['counts'], width=bar_width,
-            alpha=0.6, color=color, label='Frequency')
+    if len(centers_converted) > 1:
+        # Calculate bin width based on actual data
+        bin_width = min([centers_converted[i+1] - centers_converted[i] for i in range(len(centers_converted)-1)])
+        ax1.bar(centers_converted, counts, width=bin_width,
+                alpha=0.6, color=color, label='Frequency')
+    else:
+        # Fallback if only one data point
+        ax1.bar(centers_converted, counts, width=1,
+                alpha=0.6, color=color, label='Frequency')
     
     # Plot CDF line
-    ax2.plot(centers_converted, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
+    ax2.plot(centers_converted, cdfs, 'r-', linewidth=2, label='CDF')
     
     # Add markers for key percentiles (50%, 95%, 99%)
     percentiles = [0.5, 0.95, 0.99]
     for p in percentiles:
-        idx = next((i for i, cdf in enumerate(hist_data['cdfs']) if cdf >= p), len(hist_data['cdfs'])-1)
+        idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
         if idx < len(centers_converted):
             x = centers_converted[idx]
-            y = hist_data['cdfs'][idx]
+            y = cdfs[idx]
             ax2.plot(x, y, 'ro', markersize=5)
             ax2.annotate(f'{int(p*100)}%', 
                         xy=(x, y),
@@ -287,26 +328,33 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
         hist_data = data['e2e_histogram']
         unit_id = hist_data['unit']
         
-        centers_converted = []
-        for center in hist_data['centers']:
-            val, unit_str, unit_label = convert_time_with_unit(center, unit_id)
-            centers_converted.append(val)
+        # Process histogram data for better quality
+        centers_converted, counts, cdfs, unit_id = process_histogram_data(hist_data, unit_id)
+        val, unit_str, unit_label = convert_time_with_unit(0, unit_id)  # Just to get unit strings
         
         ax1 = plt.gca()
         ax2 = ax1.twinx()
         
-        bar_width = centers_converted[1]-centers_converted[0] if len(centers_converted) > 1 else 1
-        ax1.bar(centers_converted, hist_data['counts'], width=bar_width,
-                alpha=0.6, color=COLORS['e2e'], label='Frequency')
-        ax2.plot(centers_converted, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
+        # Get consistent color
+        color = get_latency_type_color('e2e')
+        
+        if len(centers_converted) > 1:
+            bin_width = min([centers_converted[i+1] - centers_converted[i] for i in range(len(centers_converted)-1)])
+            ax1.bar(centers_converted, counts, width=bin_width,
+                    alpha=0.6, color=color, label='Frequency')
+        else:
+            ax1.bar(centers_converted, counts, width=1,
+                    alpha=0.6, color=color, label='Frequency')
+        
+        ax2.plot(centers_converted, cdfs, 'r-', linewidth=2, label='CDF')
         
         # Add percentile markers
         percentiles = [0.5, 0.95, 0.99]
         for p in percentiles:
-            idx = next((i for i, cdf in enumerate(hist_data['cdfs']) if cdf >= p), len(hist_data['cdfs'])-1)
+            idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
             if idx < len(centers_converted):
                 x = centers_converted[idx]
-                y = hist_data['cdfs'][idx]
+                y = cdfs[idx]
                 ax2.plot(x, y, 'ro', markersize=5)
                 ax2.annotate(f'{int(p*100)}%', 
                             xy=(x, y),
@@ -357,27 +405,34 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
             # Latency histogram
             hist_data = data[f'{lt_key}_histogram']
             unit_id = hist_data['unit']
-            centers_converted = []
-            for center in hist_data['centers']:
-                val, unit_str, unit_label = convert_time_with_unit(center, unit_id)
-                centers_converted.append(val)
+            
+            # Process histogram data for better quality
+            centers_converted, counts, cdfs, unit_id = process_histogram_data(hist_data, unit_id)
+            val, unit_str, unit_label = convert_time_with_unit(0, unit_id)  # Just to get unit strings
             
             ax1 = plt.gca()
             ax2 = ax1.twinx()
             
-            color = COLORS[lt_key.split('_')[0]]  # Use color of first stage in pair
-            bar_width = centers_converted[1]-centers_converted[0] if len(centers_converted) > 1 else 1
-            ax1.bar(centers_converted, hist_data['counts'], width=bar_width,
-                    alpha=0.6, color=color, label='Frequency')
-            ax2.plot(centers_converted, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
+            # Get consistent color
+            color = get_latency_type_color(lt_key)
+            
+            if len(centers_converted) > 1:
+                bin_width = min([centers_converted[i+1] - centers_converted[i] for i in range(len(centers_converted)-1)])
+                ax1.bar(centers_converted, counts, width=bin_width,
+                        alpha=0.6, color=color, label='Frequency')
+            else:
+                ax1.bar(centers_converted, counts, width=1,
+                        alpha=0.6, color=color, label='Frequency')
+            
+            ax2.plot(centers_converted, cdfs, 'r-', linewidth=2, label='CDF')
             
             # Add percentile markers
             percentiles = [0.5, 0.95, 0.99]
             for p in percentiles:
-                idx = next((i for i, cdf in enumerate(hist_data['cdfs']) if cdf >= p), len(hist_data['cdfs'])-1)
+                idx = next((i for i, cdf in enumerate(cdfs) if cdf >= p), len(cdfs)-1)
                 if idx < len(centers_converted):
                     x = centers_converted[idx]
-                    y = hist_data['cdfs'][idx]
+                    y = cdfs[idx]
                     ax2.plot(x, y, 'ro', markersize=5)
                     ax2.annotate(f'{int(p*100)}%', 
                                 xy=(x, y),
@@ -447,41 +502,44 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
         for lt in latency_types:
             hist_data = data[f'{lt}_histogram']
             unit_id = hist_data['unit']
-            counts = hist_data['counts']
+            
+            # Process histogram data for better quality
+            centers_converted, counts, cdfs, unit_id = process_histogram_data(hist_data, unit_id)
+            val, unit_str, unit_label = convert_time_with_unit(0, unit_id)  # Just to get unit strings
             
             # Find non-zero buckets for actual min/max
             non_zero_indices = [i for i, count in enumerate(counts) if count > 0]
             if non_zero_indices:
-                min_val, unit_str, unit_label = convert_time_with_unit(hist_data['centers'][min(non_zero_indices)], unit_id)
-                max_val, _, _ = convert_time_with_unit(hist_data['centers'][max(non_zero_indices)], unit_id)
-                
-                # Calculate weighted average for mean latency
-                total_count = sum(counts)
-                if total_count > 0:
-                    mean_val = sum(convert_time_with_unit(hist_data['centers'][i], unit_id)[0] * counts[i] 
-                                 for i in range(len(hist_data['centers']))) / total_count
+                if centers_converted:
+                    min_val = centers_converted[min(non_zero_indices)]
+                    max_val = centers_converted[max(non_zero_indices)]
                     
-                    # Find key percentiles (50%, 95%, 99%)
-                    cdfs = hist_data['cdfs']
-                    median_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.5), len(cdfs)-1)
-                    median_val = convert_time_with_unit(hist_data['centers'][median_idx], unit_id)[0]
-                    
-                    # Find 95th percentile
-                    p95_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.95), len(cdfs)-1)
-                    p95_val = convert_time_with_unit(hist_data['centers'][p95_idx], unit_id)[0]
-                    
-                    # Find 99th percentile
-                    p99_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.99), len(cdfs)-1)
-                    p99_val = convert_time_with_unit(hist_data['centers'][p99_idx], unit_id)[0]
-                    
-                    # Calculate standard deviation and coefficient of variation
-                    variance = sum(((convert_time_with_unit(hist_data['centers'][i], unit_id)[0] - mean_val) ** 2) * counts[i] 
-                                  for i in range(len(hist_data['centers']))) / total_count
-                    std_dev = variance ** 0.5
-                    cv = (std_dev / mean_val * 100) if mean_val > 0 else 0  # as percentage
-                    
-                    stage_name = STAGE_NAMES.get(lt, lt)
-                    summary_text += f"""
+                    # Calculate weighted average for mean latency
+                    total_count = sum(counts)
+                    if total_count > 0:
+                        mean_val = sum(centers_converted[i] * counts[i] 
+                                     for i in range(len(centers_converted))) / total_count
+                        
+                        # Find key percentiles (50%, 95%, 99%)
+                        median_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.5), len(cdfs)-1)
+                        median_val = centers_converted[median_idx] if median_idx < len(centers_converted) else 0
+                        
+                        # Find 95th percentile
+                        p95_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.95), len(cdfs)-1)
+                        p95_val = centers_converted[p95_idx] if p95_idx < len(centers_converted) else 0
+                        
+                        # Find 99th percentile
+                        p99_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.99), len(cdfs)-1)
+                        p99_val = centers_converted[p99_idx] if p99_idx < len(centers_converted) else 0
+                        
+                        # Calculate standard deviation and coefficient of variation
+                        variance = sum(((centers_converted[i] - mean_val) ** 2) * counts[i] 
+                                      for i in range(len(centers_converted))) / total_count
+                        std_dev = variance ** 0.5
+                        cv = (std_dev / mean_val * 100) if mean_val > 0 else 0  # as percentage
+                        
+                        stage_name = STAGE_NAMES.get(lt, lt)
+                        summary_text += f"""
         {stage_name}:
           Min: {min_val:.2f} {unit_str}
           Mean: {mean_val:.2f} {unit_str}
@@ -491,7 +549,9 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
           Max: {max_val:.2f} {unit_str}
           Std Dev: {std_dev:.2f} {unit_str}
           Variability: {cv:.1f}%
-                    """
+                        """
+                    else:
+                        summary_text += f"\n        {STAGE_NAMES.get(lt, lt)}: No data\n"
                 else:
                     summary_text += f"\n        {STAGE_NAMES.get(lt, lt)}: No data\n"
             else:
