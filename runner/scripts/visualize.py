@@ -41,6 +41,23 @@ STAGE_NAMES = {
 FIG_SIZE = (10, 6)
 DPI = 100
 
+# Time unit definitions and conversion factors
+TIME_UNITS = {
+    0: {'name': 'ns', 'factor': 1e9, 'label': 'Nanoseconds'},
+    1: {'name': 'μs', 'factor': 1e6, 'label': 'Microseconds'},
+    2: {'name': 'ms', 'factor': 1e3, 'label': 'Milliseconds'},
+    3: {'name': 's',  'factor': 1.0, 'label': 'Seconds'}
+}
+
+def convert_time_with_unit(time_seconds, unit_id):
+    """
+    Convert time from seconds to the specified unit.
+    Returns the value and unit string.
+    """
+    unit = TIME_UNITS[unit_id]
+    value = time_seconds * unit['factor']
+    return value, unit['name'], unit['label']
+
 
 def read_binary_output(filename: str) -> Dict[str, Any]:
     """
@@ -53,6 +70,8 @@ def read_binary_output(filename: str) -> Dict[str, Any]:
         data['total_txns'] = struct.unpack('i', f.read(4))[0]
         data['complete_txns'] = struct.unpack('i', f.read(4))[0]
         data['filtered_count'] = struct.unpack('i', f.read(4))[0]
+        data['num_buckets'] = struct.unpack('i', f.read(4))[0]
+        data['cpu_freq'] = struct.unpack('d', f.read(8))[0]
         data['num_puppets'] = struct.unpack('i', f.read(4))[0]
         data['average_throughput'] = struct.unpack('d', f.read(8))[0]
         
@@ -77,11 +96,17 @@ def read_binary_output(filename: str) -> Dict[str, Any]:
             }
         
         # Read histogram information
-        data['num_buckets'] = struct.unpack('i', f.read(4))[0]
+        latency_types = ['e2e', 'submit_sched', 'sched_recv', 'recv_done', 'done_cleanup']
+        # Read time units for each histogram
+        for lt in latency_types:
+            unit_id = struct.unpack('i', f.read(4))[0]
+            if unit_id not in TIME_UNITS:
+                unit_id = 1  # Default to microseconds if invalid
+            data[f'{lt}_unit'] = unit_id
+        
         n_buckets = data['num_buckets']
         
         # Read histograms for each latency type
-        latency_types = ['e2e', 'submit_sched', 'sched_recv', 'recv_done', 'done_cleanup']
         for lt in latency_types:
             centers = []
             counts = []
@@ -93,7 +118,8 @@ def read_binary_output(filename: str) -> Dict[str, Any]:
             data[f'{lt}_histogram'] = {
                 'centers': centers,
                 'counts': counts,
-                'cdfs': cdfs
+                'cdfs': cdfs,
+                'unit': data[f'{lt}_unit']
             }
     
     return data
@@ -111,14 +137,19 @@ def plot_throughput_individual(data: Dict[str, Any], stage: str, output_file: st
         throughput_data['times'],
         throughput_data['values'],
         color=COLORS[stage],
+        linewidth=2,
         label=STAGE_NAMES[stage]
     )
     
+    # Add average line
+    plt.axhline(y=data['average_throughput'], color='r', linestyle='--', 
+                label=f'Avg: {data["average_throughput"]:.2f} txn/s')
+    
     plt.grid(True, linestyle='--', alpha=0.7)
-    plt.xlabel('Time (seconds)')
-    plt.ylabel('Throughput (txn/s)')
-    plt.title(f'{STAGE_NAMES[stage]} Throughput Over Time')
-    plt.legend()
+    plt.xlabel('Time (seconds)', fontsize=12)
+    plt.ylabel('Throughput (txn/s)', fontsize=12)
+    plt.title(f'{STAGE_NAMES[stage]} Throughput Over Time', fontsize=14)
+    plt.legend(fontsize=10)
     
     # Save to file
     plt.tight_layout()
@@ -148,14 +179,15 @@ def plot_throughput_combined(data: Dict[str, Any], output_file: str) -> None:
             throughput_data['times'],
             throughput_data['values'],
             color=COLORS[stage],
+            linewidth=2,
             label=STAGE_NAMES[stage]
         )
     
     plt.grid(True, linestyle='--', alpha=0.7)
-    plt.xlabel('Time (seconds)')
-    plt.ylabel('Throughput (txn/s)')
-    plt.title('Combined Throughput Over Time')
-    plt.legend()
+    plt.xlabel('Time (seconds)', fontsize=12)
+    plt.ylabel('Throughput (txn/s)', fontsize=12)
+    plt.title('Combined Throughput Over Time', fontsize=14)
+    plt.legend(fontsize=10)
     
     # Use consistent y-axis
     plt.ylim(0, max_throughput * 1.1)
@@ -172,32 +204,55 @@ def plot_latency_histogram(data: Dict[str, Any], latency_type: str, output_file:
     """
     Plot latency histogram with CDF overlay for a specific latency type and save as SVG.
     """
-    plt.figure(figsize=FIG_SIZE, dpi=DPI)
-    
+    # Get histogram data and time unit
     hist_data = data[f'{latency_type}_histogram']
+    unit_id = hist_data['unit']
     
     # Create figure with two y-axes
     fig, ax1 = plt.subplots(figsize=FIG_SIZE, dpi=DPI)
     ax2 = ax1.twinx()
     
-    # Convert centers to microseconds for better readability
-    centers_us = [c * 1e6 for c in hist_data['centers']]
+    # Convert centers to appropriate unit
+    centers_converted = []
+    unit_str = ""
+    unit_label = ""
+    
+    for center in hist_data['centers']:
+        val, unit_str, unit_label = convert_time_with_unit(center, unit_id)
+        centers_converted.append(val)
     
     # Plot histogram bars
     color = COLORS[latency_type] if latency_type in COLORS else COLORS['e2e']
-    ax1.bar(centers_us, hist_data['counts'], width=centers_us[1]-centers_us[0] if len(centers_us) > 1 else 1,
+    bar_width = centers_converted[1]-centers_converted[0] if len(centers_converted) > 1 else 1
+    ax1.bar(centers_converted, hist_data['counts'], width=bar_width,
             alpha=0.6, color=color, label='Frequency')
     
     # Plot CDF line
-    ax2.plot(centers_us, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
+    ax2.plot(centers_converted, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
+    
+    # Add markers for key percentiles (50%, 95%, 99%)
+    percentiles = [0.5, 0.95, 0.99]
+    for p in percentiles:
+        idx = next((i for i, cdf in enumerate(hist_data['cdfs']) if cdf >= p), len(hist_data['cdfs'])-1)
+        if idx < len(centers_converted):
+            x = centers_converted[idx]
+            y = hist_data['cdfs'][idx]
+            ax2.plot(x, y, 'ro', markersize=5)
+            ax2.annotate(f'{int(p*100)}%', 
+                        xy=(x, y),
+                        xytext=(10, -10 if p < 0.9 else 10), 
+                        textcoords='offset points',
+                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
+                        fontsize=8)
     
     # Set labels and title
-    ax1.set_xlabel('Latency (microseconds)')
-    ax1.set_ylabel('Frequency')
-    ax2.set_ylabel('CDF')
+    ax1.set_xlabel(f'Latency ({unit_str})', fontsize=12)
+    ax1.set_ylabel('Frequency', fontsize=12)
+    ax2.set_ylabel('CDF', fontsize=12)
     
+    # Get the stage name
     stage_name = STAGE_NAMES.get(latency_type, latency_type)
-    plt.title(f'{stage_name} Latency Distribution')
+    plt.title(f'{stage_name} Latency Distribution', fontsize=14)
     
     # Add grid to histogram
     ax1.grid(True, linestyle='--', alpha=0.7)
@@ -206,8 +261,8 @@ def plot_latency_histogram(data: Dict[str, Any], latency_type: str, output_file:
     ax2.set_ylim(0, 1.05)
     
     # Add legends
-    ax1.legend(loc='upper left')
-    ax2.legend(loc='lower right')
+    ax1.legend(loc='upper left', fontsize=10)
+    ax2.legend(loc='lower right', fontsize=10)
     
     # Save to file
     plt.tight_layout()
@@ -228,38 +283,60 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
         
         # End-to-end latency histogram
         plt.subplot(2, 1, 1)
+        
         hist_data = data['e2e_histogram']
-        centers_us = [c * 1e6 for c in hist_data['centers']]
+        unit_id = hist_data['unit']
+        
+        centers_converted = []
+        for center in hist_data['centers']:
+            val, unit_str, unit_label = convert_time_with_unit(center, unit_id)
+            centers_converted.append(val)
         
         ax1 = plt.gca()
         ax2 = ax1.twinx()
         
-        ax1.bar(centers_us, hist_data['counts'], width=centers_us[1]-centers_us[0] if len(centers_us) > 1 else 1,
+        bar_width = centers_converted[1]-centers_converted[0] if len(centers_converted) > 1 else 1
+        ax1.bar(centers_converted, hist_data['counts'], width=bar_width,
                 alpha=0.6, color=COLORS['e2e'], label='Frequency')
-        ax2.plot(centers_us, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
+        ax2.plot(centers_converted, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
         
-        ax1.set_xlabel('Latency (microseconds)')
-        ax1.set_ylabel('Frequency')
-        ax2.set_ylabel('CDF')
+        # Add percentile markers
+        percentiles = [0.5, 0.95, 0.99]
+        for p in percentiles:
+            idx = next((i for i, cdf in enumerate(hist_data['cdfs']) if cdf >= p), len(hist_data['cdfs'])-1)
+            if idx < len(centers_converted):
+                x = centers_converted[idx]
+                y = hist_data['cdfs'][idx]
+                ax2.plot(x, y, 'ro', markersize=5)
+                ax2.annotate(f'{int(p*100)}%', 
+                            xy=(x, y),
+                            xytext=(10, -10 if p < 0.9 else 10), 
+                            textcoords='offset points',
+                            arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
+                            fontsize=8)
+        
+        ax1.set_xlabel(f'Latency ({unit_str})', fontsize=12)
+        ax1.set_ylabel('Frequency', fontsize=12)
+        ax2.set_ylabel('CDF', fontsize=12)
         ax2.set_ylim(0, 1.05)
-        plt.title('End-to-End Latency Distribution')
-        ax1.legend(loc='upper left')
-        ax2.legend(loc='lower right')
+        plt.title('End-to-End Latency Distribution', fontsize=14)
+        ax1.legend(loc='upper left', fontsize=10)
+        ax2.legend(loc='lower right', fontsize=10)
         ax1.grid(True, linestyle='--', alpha=0.7)
         
         # End-to-end throughput (using 'done' stage)
         plt.subplot(2, 1, 2)
         throughput_data = data['done_throughput']
         plt.plot(throughput_data['times'], throughput_data['values'], 
-                 color=COLORS['done'], label='Throughput')
+                 color=COLORS['done'], linewidth=2, label='Throughput')
         plt.axhline(y=data['average_throughput'], color='r', linestyle='--', 
                     label=f'Avg: {data["average_throughput"]:.2f} txn/s')
         
         plt.grid(True, linestyle='--', alpha=0.7)
-        plt.xlabel('Time (seconds)')
-        plt.ylabel('Throughput (txn/s)')
-        plt.title('End-to-End Throughput Over Time')
-        plt.legend()
+        plt.xlabel('Time (seconds)', fontsize=12)
+        plt.ylabel('Throughput (txn/s)', fontsize=12)
+        plt.title('End-to-End Throughput Over Time', fontsize=14)
+        plt.legend(fontsize=10)
         
         plt.tight_layout(rect=[0, 0, 1, 0.95])  # Adjust layout accounting for suptitle
         pdf.savefig()
@@ -279,23 +356,43 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
             
             # Latency histogram
             hist_data = data[f'{lt_key}_histogram']
-            centers_us = [c * 1e6 for c in hist_data['centers']]
+            unit_id = hist_data['unit']
+            centers_converted = []
+            for center in hist_data['centers']:
+                val, unit_str, unit_label = convert_time_with_unit(center, unit_id)
+                centers_converted.append(val)
             
             ax1 = plt.gca()
             ax2 = ax1.twinx()
             
             color = COLORS[lt_key.split('_')[0]]  # Use color of first stage in pair
-            ax1.bar(centers_us, hist_data['counts'], width=centers_us[1]-centers_us[0] if len(centers_us) > 1 else 1,
+            bar_width = centers_converted[1]-centers_converted[0] if len(centers_converted) > 1 else 1
+            ax1.bar(centers_converted, hist_data['counts'], width=bar_width,
                     alpha=0.6, color=color, label='Frequency')
-            ax2.plot(centers_us, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
+            ax2.plot(centers_converted, hist_data['cdfs'], 'r-', linewidth=2, label='CDF')
             
-            ax1.set_xlabel('Latency (microseconds)')
-            ax1.set_ylabel('Frequency')
-            ax2.set_ylabel('CDF')
+            # Add percentile markers
+            percentiles = [0.5, 0.95, 0.99]
+            for p in percentiles:
+                idx = next((i for i, cdf in enumerate(hist_data['cdfs']) if cdf >= p), len(hist_data['cdfs'])-1)
+                if idx < len(centers_converted):
+                    x = centers_converted[idx]
+                    y = hist_data['cdfs'][idx]
+                    ax2.plot(x, y, 'ro', markersize=5)
+                    ax2.annotate(f'{int(p*100)}%', 
+                                xy=(x, y),
+                                xytext=(10, -10 if p < 0.9 else 10), 
+                                textcoords='offset points',
+                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
+                                fontsize=8)
+            
+            ax1.set_xlabel(f'Latency ({unit_str})', fontsize=12)
+            ax1.set_ylabel('Frequency', fontsize=12)
+            ax2.set_ylabel('CDF', fontsize=12)
             ax2.set_ylim(0, 1.05)
-            plt.title(f'{lt_name} Latency Distribution')
-            ax1.legend(loc='upper left')
-            ax2.legend(loc='lower right')
+            plt.title(f'{lt_name} Latency Distribution', fontsize=14)
+            ax1.legend(loc='upper left', fontsize=10)
+            ax2.legend(loc='lower right', fontsize=10)
             ax1.grid(True, linestyle='--', alpha=0.7)
             
             plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -315,14 +412,15 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
                 throughput_data['times'],
                 throughput_data['values'],
                 color=COLORS[stage],
+                linewidth=2,
                 label=STAGE_NAMES[stage]
             )
         
         plt.grid(True, linestyle='--', alpha=0.7)
-        plt.xlabel('Time (seconds)')
-        plt.ylabel('Throughput (txn/s)')
-        plt.title('Throughput by Stage')
-        plt.legend()
+        plt.xlabel('Time (seconds)', fontsize=12)
+        plt.ylabel('Throughput (txn/s)', fontsize=12)
+        plt.title('Throughput by Stage', fontsize=14)
+        plt.legend(fontsize=10)
         plt.ylim(0, max_throughput * 1.1)
         
         plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -348,37 +446,51 @@ def generate_pdf_report(data: Dict[str, Any], output_file: str) -> None:
         latency_types = ['e2e', 'submit_sched', 'sched_recv', 'recv_done', 'done_cleanup']
         for lt in latency_types:
             hist_data = data[f'{lt}_histogram']
-            centers_us = [c * 1e6 for c in hist_data['centers']]
+            unit_id = hist_data['unit']
             counts = hist_data['counts']
             
             # Find non-zero buckets for actual min/max
             non_zero_indices = [i for i, count in enumerate(counts) if count > 0]
             if non_zero_indices:
-                min_latency = centers_us[min(non_zero_indices)]
-                max_latency = centers_us[max(non_zero_indices)]
+                min_val, unit_str, unit_label = convert_time_with_unit(hist_data['centers'][min(non_zero_indices)], unit_id)
+                max_val, _, _ = convert_time_with_unit(hist_data['centers'][max(non_zero_indices)], unit_id)
                 
                 # Calculate weighted average for mean latency
                 total_count = sum(counts)
                 if total_count > 0:
-                    mean_latency = sum(centers_us[i] * counts[i] for i in range(len(centers_us))) / total_count
+                    mean_val = sum(convert_time_with_unit(hist_data['centers'][i], unit_id)[0] * counts[i] 
+                                 for i in range(len(hist_data['centers']))) / total_count
                     
-                    # Find median (50th percentile)
+                    # Find key percentiles (50%, 95%, 99%)
                     cdfs = hist_data['cdfs']
                     median_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.5), len(cdfs)-1)
-                    median_latency = centers_us[median_idx]
+                    median_val = convert_time_with_unit(hist_data['centers'][median_idx], unit_id)[0]
+                    
+                    # Find 95th percentile
+                    p95_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.95), len(cdfs)-1)
+                    p95_val = convert_time_with_unit(hist_data['centers'][p95_idx], unit_id)[0]
                     
                     # Find 99th percentile
                     p99_idx = next((i for i, cdf in enumerate(cdfs) if cdf >= 0.99), len(cdfs)-1)
-                    p99_latency = centers_us[p99_idx]
+                    p99_val = convert_time_with_unit(hist_data['centers'][p99_idx], unit_id)[0]
+                    
+                    # Calculate standard deviation and coefficient of variation
+                    variance = sum(((convert_time_with_unit(hist_data['centers'][i], unit_id)[0] - mean_val) ** 2) * counts[i] 
+                                  for i in range(len(hist_data['centers']))) / total_count
+                    std_dev = variance ** 0.5
+                    cv = (std_dev / mean_val * 100) if mean_val > 0 else 0  # as percentage
                     
                     stage_name = STAGE_NAMES.get(lt, lt)
                     summary_text += f"""
         {stage_name}:
-          Min: {min_latency:.2f} µs
-          Mean: {mean_latency:.2f} µs
-          Median: {median_latency:.2f} µs
-          99th Percentile: {p99_latency:.2f} µs
-          Max: {max_latency:.2f} µs
+          Min: {min_val:.2f} {unit_str}
+          Mean: {mean_val:.2f} {unit_str}
+          Median: {median_val:.2f} {unit_str}
+          95th Percentile: {p95_val:.2f} {unit_str}
+          99th Percentile: {p99_val:.2f} {unit_str}
+          Max: {max_val:.2f} {unit_str}
+          Std Dev: {std_dev:.2f} {unit_str}
+          Variability: {cv:.1f}%
                     """
                 else:
                     summary_text += f"\n        {STAGE_NAMES.get(lt, lt)}: No data\n"
@@ -411,20 +523,20 @@ def main():
         # Generate individual throughput graphs
         stages = ['submit', 'sched', 'recv', 'done', 'cleanup']
         for stage in stages:
-            output_file = f"output-throughput-{stage}.svg"
+            output_file = f"output/throughput-{stage}.svg"
             plot_throughput_individual(data, stage, output_file)
         
         # Generate combined throughput graph
-        plot_throughput_combined(data, "output-throughput-combined.svg")
+        plot_throughput_combined(data, "output/throughput-combined.svg")
         
         # Generate latency histograms
         latency_types = ['e2e', 'submit_sched', 'sched_recv', 'recv_done', 'done_cleanup']
         for lt in latency_types:
-            output_file = f"output-latency-{lt}.svg"
+            output_file = f"output/latency-{lt}.svg"
             plot_latency_histogram(data, lt, output_file)
         
         # Generate PDF report with all visualizations
-        generate_pdf_report(data, "output-report.pdf")
+        generate_pdf_report(data, "output/report.pdf")
         
         print("All visualizations generated successfully!")
         

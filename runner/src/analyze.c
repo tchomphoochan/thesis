@@ -15,14 +15,23 @@ static const bool complain_missing  = false;
 static const bool complain_order    = true;
 static const bool complain_conflict = true;
 
-static const int num_buckets = 64;
+static const int num_buckets = 32;
+
+// Time unit definitions for appropriate histogram scaling
+typedef enum {
+  UNIT_NS = 0,  // Nanoseconds 
+  UNIT_US = 1,  // Microseconds
+  UNIT_MS = 2,  // Milliseconds
+  UNIT_S  = 3,  // Seconds
+} time_unit_t;
+
 static const double fraction_warmup_time = 0.1;
 static const double fraction_cooldown_time = 0.1;
 static const int num_throughput_windows = 50;
 
 // Outlier removal configuration
-static const double lower_percentile_cutoff = 0.01; // Remove bottom 1%
-static const double upper_percentile_cutoff = 0.99; // Remove top 1%
+static const double lower_percentile_cutoff = 0.005;
+static const double upper_percentile_cutoff = 0.995;
 
 typedef struct {
   uint64_t submit, sched, work, done, cleanup; // 0 is missing
@@ -39,6 +48,14 @@ static int compare_sched_evt(const void *a, const void *b) {
   if (evt_a->ts_sched < evt_b->ts_sched) return -1;
   if (evt_a->ts_sched > evt_b->ts_sched) return 1;
   return 0;
+}
+
+// Helper function to determine appropriate time unit for a time in seconds
+static time_unit_t determine_time_unit(double time_seconds) {
+  if (time_seconds < 1e-6) return UNIT_NS;
+  if (time_seconds < 1e-3) return UNIT_US;
+  if (time_seconds < 1.0)  return UNIT_MS;
+  return UNIT_S;
 }
 
 // Compare function for unsigned 64-bit integers (for latency sorting)
@@ -434,6 +451,12 @@ int main(int argc, char *argv[])
   double min_done_cleanup_s = min_done_cleanup / cpu_freq;
   double max_done_cleanup_s = max_done_cleanup / cpu_freq;
 
+  // Determine appropriate time units for each latency type
+  time_unit_t e2e_unit = determine_time_unit((min_e2e_s + max_e2e_s) / 2);
+  time_unit_t submit_sched_unit = determine_time_unit((min_submit_sched_s + max_submit_sched_s) / 2);
+  time_unit_t sched_recv_unit = determine_time_unit((min_sched_recv_s + max_sched_recv_s) / 2);
+  time_unit_t recv_done_unit = determine_time_unit((min_recv_done_s + max_recv_done_s) / 2);
+  time_unit_t done_cleanup_unit = determine_time_unit((min_done_cleanup_s + max_done_cleanup_s) / 2);
   INFO("End-to-end latency range: %.6f - %.6f seconds", min_e2e_s, max_e2e_s);
 
   // Create histogram buckets for each latency type
@@ -476,6 +499,8 @@ int main(int argc, char *argv[])
   fwrite(&wl->num_txns, sizeof(int), 1, out);
   fwrite(&complete_txns, sizeof(int), 1, out);
   fwrite(&filtered_count, sizeof(int), 1, out);
+  fwrite(&num_buckets, sizeof(int), 1, out);
+  fwrite(&cpu_freq, sizeof(double), 1, out);
   fwrite(&num_puppets, sizeof(int), 1, out);
   fwrite(&average_throughput, sizeof(double), 1, out);
 
@@ -510,7 +535,11 @@ int main(int argc, char *argv[])
   }
 
   // Write histogram information
-  fwrite(&num_buckets, sizeof(int), 1, out);
+  fwrite(&e2e_unit, sizeof(time_unit_t), 1, out);
+  fwrite(&submit_sched_unit, sizeof(time_unit_t), 1, out);
+  fwrite(&sched_recv_unit, sizeof(time_unit_t), 1, out);
+  fwrite(&recv_done_unit, sizeof(time_unit_t), 1, out);
+  fwrite(&done_cleanup_unit, sizeof(time_unit_t), 1, out);
 
   // Write end-to-end latency histogram
   for (int i = 0; i < num_buckets; i++) {
@@ -548,7 +577,7 @@ int main(int argc, char *argv[])
   }
 
   fclose(out);
-  INFO("Binary data written to out.bin");
+  INFO("Binary data written to analyzed.bin");
 
   /*
   Print estimated throughputs
