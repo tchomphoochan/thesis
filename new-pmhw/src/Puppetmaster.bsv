@@ -2,26 +2,30 @@ import BasicTypes::*;
 import MainTypes::*;
 import GetPut::*;
 import FIFO::*;
+import FIFOF::*;
 import SpecialFIFOs::*;
+import ClientServer::*;
 import Vector::*;
 
 import Summary::*;
 
-typedef 128 InputBufferSize;
-typedef 128 DoneBufferSize;
+typedef 4 InputBufferSize;
+typedef 4 LookaheadBufferSize;
+typedef 16 ActiveBufferSize; // maximum number of concurrently scheduled transactions
+typedef 512 RefreshDuration;
 
 /*
 Output scheduling message from Puppetmaster
 */
 typedef struct {
-    TransactionId transactionId;
+    TransactionId txnId;
 } ScheduleMessage deriving (Bits, Eq, FShow);
 
 /*
 Input work-done message back into Puppetmaster
 */
 typedef struct {
-    TransactionId transactionId;
+    TransactionId txnId;
 } WorkDoneMessage deriving (Bits, Eq, FShow);
 
 /*
@@ -29,83 +33,172 @@ Puppetmaster interface
 */
 interface Puppetmaster;
     method Action setNumPuppets(Bit#(16) numPuppets);
-    method Bit#(16) getNumPuppets() numPuppets);
+    method Bit#(16) getNumPuppets;
 
     interface Put#(Transaction) transactions;
     interface Get#(ScheduleMessage) scheduled;
     interface Put#(WorkDoneMessage) workDone;
 endinterface
 
-/*
-Steps:
-- Drain done
-- Rebuild summary:
-    - If have element to add to newSummary, add to newSummary.
-    - If not, clear currentSummary, and newSummary becomes currentSummary.
-        - We know for sure that (new) currentSummary hasn't been modified this cycle yet,
-          so the scheduling step could proceed normally.
-- Schedule (handle input buffer):
-    - Add to currentSummary.
-    - No need to add to newSummary yet. That'll be taken care of by the rebuilding loop.
-- Receive user input into inputBuffer
-*/
+typedef enum {
+    Normal, // Normal operation
+    StartSwitch, // Paused everything, waiting for shadow queue to be drained to start the copying process
+    Switching // Copying
+} PuppetmasterState deriving (Bits, Eq, FShow);
 
 (* descending_urgency = "trySchedule, transactions_put" *)
 module mkPuppetmaster(Puppetmaster);
-    // List of inputs
-    FIFO#(Transaction) inputBuffer <- mkSizedBRAMFIFO(InputBufferSize);
+    Reg#(PuppetmasterState) state <- mkReg(Normal);
 
-    // Actual list of active transactions
-    FIFO#(Transaction) activeBuffer <- mkSizedBRAMFIFO(InputBufferSize);
+    FIFO#(Transaction) inputQ <- mkSizedFIFO(valueOf(InputBufferSize));
+    FIFOF#(Transaction) lookaheadReinsert <- mkPipelineFIFOF;
+    FIFO#(Transaction) lookaheadBuffer <- mkSizedFIFO(valueOf(LookaheadBufferSize));
 
-    // List of completed transactions, so we can remove from our summary.
-    TransactionId sentinel = maxValue;
-    Vector#(DoneBufferSize, Reg#(TransactionId)) doneBuffer <- replicateM(mkReg(sentinel));
-
-    // Bloom filter summary of active transactions
-    Vector#(2, Summary) summaries <- replicateM(mkSummary);
-    Reg#(Bit#(1)) summaryIndex <- mkReg(0);
-
-    // Output messages
-    FIFO#(ScheduleMessage) decisions <- mkFIFO;
-
-    // Cycle through the active transactions to add to the new summary
-    // If the transaction was supposed to be removed, then just skip it (and take it out of doneBuffer).
-    Reg#(Bit#(TAdd#(1, TLog#(InputBufferSize)))) refreshCnt <- mkReg;
-    rule updateNewSummary;
-        let txn = activeBuffer.first;
-        activeBuffer.deq;
-        case findElem(txn.transactionId, doneBuffer) matches
-            tagged Valid .idx: begin
-                doneBuffer[idx] <= junk;
-            end
-            tagged Invalid: begin
-                let newSummary = summaries[1-summaryIndex];
-                newSummary.addTxn(txn);
-                refreshCnt <= refreshCnt + 1;
-            end
-        end
-    endrule
-
-    // Clear the current summary and switch over to the new one.
-    rule refreshSummary if (refreshCnt == activeBufferCnt);
-        summaries[summaryIndex].clear;
-        summaryIndex <= 1-summaryIndex;
-    endrule
-
-    // Read input from head of input buffer
-    // If compatible, schedule. If not, put it back at the tail of the queue.
-    rule trySchedule;
-        let txn = inputBuffer.first;
-        inputBuffer.deq;
-        let currentSummary = summaries[summaryIndex];
-        if (currentSummary.isCompatible(txn)) begin
-            activeBuffer.enq(txn);
-            decisions.enq(txn);
-            currentSummary.addTxn(txn);
+    // Arbitrate inputs into the lookahead buffer
+    rule drainInput if (state == Normal);
+        // Always prioritize re-inserts first
+        if (lookaheadReinsert.notEmpty) begin
+            let txn = lookaheadReinsert.first;
+            lookaheadReinsert.deq;
+            lookaheadBuffer.enq(txn);
         end else begin
-            inputBuffer.enq(txn);
+            let txn = inputQ.first;
+            inputQ.deq;
+            lookaheadBuffer.enq(txn);
         end
+    endrule
+
+    Summary mainSummary <- mkSummary;
+    FIFOF#(Transaction) shadowQ <- mkFIFOF;
+    FIFO#(ScheduleMessage) schedQ <- mkSizedFIFO(valueOf(ActiveBufferSize));
+
+    // First step for handling a transaction: ask tok check with the summary
+    rule lookaheadCheckConflict if (state == Normal);
+        let txn = lookaheadBuffer.first;
+        mainSummary.checks.request.put(txn);
+    endrule
+
+    Vector#(ActiveBufferSize, Reg#(Maybe#(Transaction))) activeTxns <- replicateM(mkReg(Invalid));
+    Reg#(TIndex#(ActiveBufferSize)) activeTxnsHead <- mkReg(0);
+    Reg#(TIndex#(ActiveBufferSize)) activeTxnsTail <- mkReg(0);
+
+    Bool activeTxnsEmpty = activeTxnsHead == activeTxnsTail;
+    Bool activeTxnsFull = activeTxnsTail+1 == activeTxnsHead;
+
+    // Then, depending on the summary result, decide whether to re-insert or proceed to schedule
+    rule lookaheadResult if (state == Normal && !activeTxnsFull);
+        let txn = lookaheadBuffer.first;
+        lookaheadBuffer.deq;
+        let isCompat <- mainSummary.checks.response.get;
+        if (isCompat) begin
+            // if compat, tell user to run the txn (schedule)
+            schedQ.enq(ScheduleMessage { txnId: txn.txnId });
+            // add to current summary
+            mainSummary.txns.put(txn);
+            // also add to shadow queue to be added to shadow filter
+            shadowQ.enq(txn);
+            // add to active list (so next refresh cycle we know to include this transaction)
+            activeTxns[activeTxnsTail] <= Valid(txn);
+            activeTxnsTail <= activeTxnsTail + 1;
+        end else begin
+            // if not compat, put it back into the lookahead buffer
+            lookaheadReinsert.enq(txn);
+        end
+    endrule
+
+    // Invariant: for a given txn in activeTxns, txn is either reflected in shadowSummary or is still in shadowQ.
+    Summary shadowSummary <- mkSummary;
+
+    Reg#(TIndex#(ActiveBufferSize)) shadowPtr <- mkReg(0);
+    Reg#(Bool) shadowComplete <- mkReg(True);
+    Reg#(TIndex#(RefreshDuration)) refreshTimer <- mkReg(fromInteger(valueOf(RefreshDuration)-1));
+
+    FIFOF#(WorkDoneMessage) workDoneQ <- mkSizedFIFOF(valueOf(ActiveBufferSize));
+
+    // Go through all the active txns and put them in Bloom filter
+    rule shadowUpdate;
+        // Prioritize new txns first
+        // Otherwise, go through the active list (from tail to head)
+        if (shadowQ.notEmpty) begin
+            // Handle the queue
+            let txn = shadowQ.first;
+            shadowQ.deq;
+            shadowSummary.txns.put(txn);
+        end else if (!shadowComplete) begin
+
+            case (activeTxns[shadowPtr]) matches
+                // Skip invalid ones
+                tagged Invalid: begin
+                    // nothing to do
+                end
+                // For valid ones, check against workDoneQ
+                tagged Valid .txn: begin
+                    Bool skip = False;
+                    if (workDoneQ.notEmpty) begin
+                        let doneTxnId = workDoneQ.first.txnId;
+                        workDoneQ.deq;
+                        if (doneTxnId == txn.txnId) begin
+                            // We found a match with the queue of done transactions
+                            // so we skip adding this to the Bloom filter
+                            skip = True;
+                            // We also mark it invalid
+                            activeTxns[shadowPtr] <= Invalid;
+                        end
+                    end
+                    // Otherwise, just add to the filter
+                    if (!skip) begin
+                        shadowSummary.txns.put(txn);
+                    end
+                end
+            endcase
+
+            // "Increment" counter (we go from tail to head)
+            shadowPtr <= shadowPtr-1;
+            if (shadowPtr == activeTxnsHead) begin
+                shadowComplete <= True;
+            end
+
+        end
+    endrule
+
+    // Tick refresh timer
+    rule tickRefreshTimer if (state == Normal);
+        if (refreshTimer > 0) begin
+            refreshTimer <= refreshTimer-1;
+        end else begin
+            state <= StartSwitch;
+        end
+    endrule
+
+    // wait for shadowQ to be drained and all active txns to be handled
+    rule performSwitch if (state == StartSwitch && !shadowQ.notEmpty && shadowComplete);
+        shadowSummary.startClearCopy;
+        mainSummary.startClearCopy;
+        state <= Switching;
+    endrule
+
+    rule clearShadow if (state == Switching);
+        shadowSummary.setChunk.put(unpack(0));
+    endrule
+    rule copyShadowToMain if (state == Switching);
+        let data <- shadowSummary.getChunk.get;
+        mainSummary.setChunk.put(data);
+    endrule
+    rule drainMain if (state == Switching);
+        let _ <- mainSummary.getChunk.get;
+    endrule
+
+    // When the switch is done (main summary is now active), reinitialize stuff
+    rule switchDone if (state == Switching && mainSummary.isFree && shadowSummary.isFree);
+        if (activeTxnsEmpty) begin
+            shadowPtr <= ?;
+            shadowComplete <= activeTxnsEmpty;
+        end else begin
+            shadowPtr <= activeTxnsTail-1;
+            shadowComplete <= False;
+        end
+        refreshTimer <= fromInteger(valueOf(RefreshDuration)-1);
+        state <= Normal;
     endrule
 
     // Puppets 
@@ -115,18 +208,10 @@ module mkPuppetmaster(Puppetmaster);
     method Action setNumPuppets(Bit#(16) _numPuppets);
         numPuppets <= _numPuppets;
     endmethod
-    method Action getNumPuppets = numPuppets;
+    method Bit#(16) getNumPuppets = numPuppets;
 
-    interface transactions = toPut(inputBuffer);
-
-    interface scheduled = toGet(decisions);
-
-    // Mark a transaction as done by adding it to doneBuffer.
-    interface Put workDone;
-        method Action put(WorkDoneMessage msg);
-            let idx = findElem(sentinel, doneBuffer);
-            doneBuffer[idx] <= msg.transactionId;
-        endmethod
-    endinterface
+    interface transactions = toPut(inputQ);
+    interface scheduled = toGet(schedQ);
+    interface workDone = toPut(workDoneQ);
 
 endmodule

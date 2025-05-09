@@ -4,8 +4,8 @@ import Vector::*;
 /*
 Utility
 */
-typedef UInt#(TLog#(size)) TIndex#(numeric type size);
-typedef UInt#(TAdd#(1, TLog#(size))) TNum#(numeric type size);
+typedef Bit#(TLog#(size)) TIndex#(numeric type size);
+typedef Bit#(TAdd#(1, TLog#(size))) TCount#(numeric type size);
 
 /*
 Input transaction into Puppetmaster
@@ -14,18 +14,23 @@ Integer maxTxnReadObjs = valueOf(MaxTxnReadObjs);
 Integer maxTxnWriteObjs = valueOf(MaxTxnWriteObjs);
 
 typedef struct {
-    TransactionId transactionId;
+    TransactionId txnId;
     AuxData auxData;
-    TNum#(MaxTxnReadObjs) numReadObjs;
-    Vector#(MaxTxnReadObjs, ObjectHash) readObjs;
-    TNum#(MaxTxnWriteObjs) numWriteObjs;
-    Vector#(MaxTxnWriteObjs, ObjectHash) writeObjs;
+    TCount#(MaxTxnReadObjs) numReadObjs;
+    Vector#(MaxTxnReadObjs, ObjectId) readObjs;
+    TCount#(MaxTxnWriteObjs) numWriteObjs;
+    Vector#(MaxTxnWriteObjs, ObjectId) writeObjs;
 } Transaction deriving (Bounded, Bits, Eq, FShow);
 
-/*
-Hash stuff
-*/
 typedef 4 NumBloomParts;
-typedef 2048 BloomPartSize;
-typedef Bit#(TLog#(BloomPartSize)) BloomPartIndex;
-typedef Vector#(NumBloomParts, BloomPartIndex) ObjectHash;
+typedef 8 NumBloomChunks;
+typedef 256 BloomChunkSize;
+
+typedef TIndex#(NumBloomParts) BloomPartIndex;
+typedef TIndex#(NumBloomChunks) BloomChunkIndex;
+typedef TIndex#(BloomChunkSize) BloomBitIndex;
+
+typedef TMul#(NumBloomChunks, BloomChunkSize) BloomPartSize;
+typedef Bit#(BloomChunkSize) BloomChunk;
+typedef Vector#(NumBloomParts, Bit#(BloomChunkSize)) BloomChunkParts;
+

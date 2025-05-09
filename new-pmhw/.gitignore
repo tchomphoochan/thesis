@@ -6,3 +6,8 @@ build
 *.str
 .DS_Store
 .Xil
+*.bo
+*.ba
+*.v
+*.h
+*.so

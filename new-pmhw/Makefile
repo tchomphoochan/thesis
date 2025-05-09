@@ -28,12 +28,13 @@ dirs:
 .PHONY: clean
 clean:
 	rm -fR build
+	rm -f $(SRC)/*.ba $(SRC)/*.bo $(SRC)/*.sched
 
 # -------------------------
 # Generate Verilog using bsc
 # -------------------------
 
-BSC_SUPPRESSED_WARNINGS=G0117:G0046
+BSC_SUPPRESSED_WARNINGS=G0117:G0046:G0020
 BSC_FLAGS=\
 	+RTS -Ksize -RTS\
   -vdir $(VERILOG_DIR) \
@@ -69,7 +70,7 @@ $(VERILOG_FILES): $(VERILOG_DIR)/mk%.v: $(SRCS)
 # Test targets
 # -------------------------
 
-TEST_NAMES=SummaryTest
+TEST_NAMES=SummaryTest PuppetmasterTest
 TEST_EXES=$(foreach test, $(TEST_NAMES), $(SIM_DIR)/mk$(test))
 
 $(TEST_EXES): $(SIM_DIR)/mk%: $(SRCS)
