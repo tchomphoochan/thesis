@@ -216,6 +216,10 @@ module mkSummary(Summary);
                       : Invalid;
     endrule
 
+    rule copyIsDone if (!isValid(mReqChunk) && !isValid(mRespChunk) && state == Copying);
+        state <= Free;
+    endrule
+
     interface Put txns;
         method Action put(Transaction t) if (state == Free);
             txn <= t;
