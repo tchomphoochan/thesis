@@ -7,6 +7,7 @@ import Vector::*;
 import GetPut::*;
 import Connectable::*;
 import ClientServer::*;
+import Clocks::*;
 
 /*
 Top-level configuration for testing
@@ -91,9 +92,18 @@ module mkConnectal#(
     */
     H2SMessage h2s
 )(Connectal);
+    Reset curRst <- exposeCurrentReset;
+    Clock curClk <- exposeCurrentClock;
+
+    PulseWire rstIn <- mkPulseWire;
+    MakeResetIfc newRstGen <- mkReset(2, rstIn, curClk);
+    Reset newRstAsync = newRstGen.new_rst;
+    Reset newRst <- mkSyncReset(2, newRstAsync, curClk);
+    Reset sysRst <- mkResetEither(curRst, newRst);
+
     // Input side
-    RealTxnDriver realTxnDriver <- mkRealTxnDriver;
-    FakeTxnDriver fakeTxnDriver <- mkFakeTxnDriver;
+    RealTxnDriver realTxnDriver <- mkRealTxnDriver(reset_by sysRst);
+    FakeTxnDriver fakeTxnDriver <- mkFakeTxnDriver(reset_by sysRst);
     TxnDriver allTxnDrivers[2] = {
         realTxnDriver.txnDriver,
         fakeTxnDriver.txnDriver
@@ -102,11 +112,11 @@ module mkConnectal#(
 
     // Processing component
     // Create the actual Puppetmaster instance.
-    Puppetmaster pm <- mkPuppetmaster;
+    Puppetmaster pm <- mkPuppetmaster(reset_by sysRst);
 
     // Output side
-    RealExecutor realExecutor <- mkRealExecutor;
-    FakeExecutor fakeExecutor <- mkFakeExecutor;
+    RealExecutor realExecutor <- mkRealExecutor(reset_by sysRst);
+    FakeExecutor fakeExecutor <- mkFakeExecutor(reset_by sysRst);
     Executor allExecutors[2] = {
         realExecutor.executor,
         fakeExecutor.executor
@@ -135,7 +145,7 @@ module mkConnectal#(
     */
     interface S2HMessage s2h;
         method Action systemReset();
-            // TODO
+            rstIn.send();
         endmethod
 
         method Action fetchConfig();
