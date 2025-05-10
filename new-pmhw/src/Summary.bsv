@@ -279,9 +279,7 @@ module mkSummary(Summary);
 
     interface Put setChunk;
         method Action put(BloomChunkParts data) if (mRespChunk matches tagged Valid .respChunk &&& state == Copying);
-            $fdisplay(stderr, "[%0d] setChunk.put: Setting chunk ", 
-                cycle, fshow(respChunk), " -> ", 
-                fshow(respChunk < fromInteger(valueOf(NumBloomChunks)-1) ? respChunk+1 : -1));
+            $fdisplay(stderr, "[%0d] setChunk.put: Setting chunk ", cycle, fshow(respChunk));
             bloom.portB.request.put(BRAMRequest {
                 write: True,
                 responseOnWrite: False,
