@@ -5,17 +5,12 @@ import GetPut::*;
 import FIFO::*;
 import SpecialFIFOs::*;
 import Vector::*;
+import ClientServer::*;
 
 /*
 Output side of the Puppetmaster scheduler.
 */
-interface Executor;
-    // Puppetmaster tells the executor what transaction to run
-    interface Put#(ScheduleMessage) requests;
-
-    // The executor lets Puppetmaster know when a transaction is completed.
-    interface Get#(WorkDoneMessage) responses;
-endinterface
+typedef Server#(ScheduleMessage, WorkDoneMessage) Executor;
 
 
 /*
@@ -45,20 +40,30 @@ Real executor that relays work message to host CPU to perform actual work.
 */
 interface RealExecutor;
     interface Executor executor;
-    interface Get#(ScheduleMessage) toHost;
-    interface Put#(WorkDoneMessage) fromHost;
+    interface Get#(TransactionId) toHost;
+    interface Put#(TransactionId) fromHost;
 endinterface
 
 module mkRealExecutor(RealExecutor);
-    FIFO#(ScheduleMessage) reqFF <- mkBypassFIFO;
-    FIFO#(WorkDoneMessage) doneFF <- mkBypassFIFO;
+    FIFO#(TransactionId) reqFF <- mkBypassFIFO;
+    FIFO#(TransactionId) doneFF <- mkBypassFIFO;
 
     interface toHost = toGet(reqFF);
     interface fromHost = toPut(doneFF);
 
     interface Executor executor;
-        interface requests = toPut(reqFF);
-        interface responses = toGet(doneFF);
+        interface Put request;
+            method Action put(ScheduleMessage msg);
+                reqFF.enq(msg.txnId);
+            endmethod
+        endinterface
+        interface Get response;
+            method ActionValue#(WorkDoneMessage) get;
+                let txnId = doneFF.first;
+                doneFF.deq;
+                return WorkDoneMessage { txnId: txnId };
+            endmethod
+        endinterface
     endinterface
 endmodule
 
@@ -109,14 +114,14 @@ module mkFakeExecutor(FakeExecutor);
     endrule
     
     interface Executor executor;
-        interface Put requests;
+        interface Put request;
             method Action put(ScheduleMessage req) if (findElem(Invalid, readVReg(puppets)) matches tagged Valid .puppetId);
                 $fdisplay(stderr, "[%0d] FakeExecutor: starting txn id=", cycle, fshow(req.txnId), " on puppet ", puppetId);
                 puppets[puppetId] <= Valid(PuppetData { startTime: cycle, txnId: req.txnId });
             endmethod
         endinterface
 
-        interface responses = toGet(doneFF);
+        interface response = toGet(doneFF);
     endinterface
 
 endmodule

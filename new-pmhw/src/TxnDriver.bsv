@@ -62,7 +62,7 @@ Fake transaction driver
 interface FakeTxnDriver;
     method Action resetState;
     interface Put#(Transaction) fromHost;
-    method Action setStreamOpen(Bool ok);
+    method Action trigger;
     interface TxnDriver txnDriver;
 endinterface
 
@@ -96,9 +96,9 @@ module mkFakeTxnDriver(FakeTxnDriver);
         endmethod
     endinterface
 
-    method Action setStreamOpen(Bool ok);
-        started <= ok;
-        $fdisplay(stderr, "[%0d] FakeTxnDriver: setStreamOpen(%b)", cycle, ok);
+    method Action trigger;
+        started <= True;
+        $fdisplay(stderr, "[%0d] FakeTxnDriver: triggered", cycle);
     endmethod
 
     interface TxnDriver txnDriver;
