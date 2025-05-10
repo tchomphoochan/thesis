@@ -17,9 +17,9 @@ interface Summary;
     interface Server#(Transaction, Bool) checks;
 
     // Switch to copy mode. Only succeeds when no other operations are in progress.
-    // In copy mode, one chunk at a time is returned and cleared from the BRAM.
-    // This should take up to NumBloomPartChunks cycles.
-    method Action startClearCopy;
+    // In copy mode, one chunk at a time is returned through getChunk and replaced b y data from setChunk.
+    // This should take about NumBloomPartChunks cycles.
+    method Action startCopy;
     interface Get#(BloomChunkParts) getChunk;
     interface Put#(BloomChunkParts) setChunk;
 
@@ -260,13 +260,13 @@ module mkSummary(Summary);
         endinterface
     endinterface
 
-    method Action startClearCopy if (state == Free);
+    method Action startCopy if (state == Free);
         txn <= ?;
         state <= Copying;
         mReqChunk <= Valid(0); // use for reading
         mRespChunk <= Valid(0); // use for writing
         compat <= True;
-        $fdisplay(stderr, "[%0d] startClearCopy: Starting Copy operation", cycle);
+        $fdisplay(stderr, "[%0d] startCopy: Starting Copy operation", cycle);
     endmethod
 
     interface Get getChunk;

@@ -46,9 +46,13 @@ typedef enum {
     Switching // Copying
 } PuppetmasterState deriving (Bits, Eq, FShow);
 
-(* descending_urgency = "trySchedule, transactions_put" *)
 module mkPuppetmaster(Puppetmaster);
     Reg#(PuppetmasterState) state <- mkReg(Normal);
+    Reg#(Timestamp) cycle <- mkReg(0);
+    
+    rule incrementCycle;
+        cycle <= cycle + 1;
+    endrule
 
     FIFO#(Transaction) inputQ <- mkSizedFIFO(valueOf(InputBufferSize));
     FIFOF#(Transaction) lookaheadReinsert <- mkPipelineFIFOF;
@@ -61,10 +65,12 @@ module mkPuppetmaster(Puppetmaster);
             let txn = lookaheadReinsert.first;
             lookaheadReinsert.deq;
             lookaheadBuffer.enq(txn);
+            $fdisplay(stderr, "[%0d] drainInput: Re-inserting transaction txnId=", cycle, fshow(txn.txnId));
         end else begin
             let txn = inputQ.first;
             inputQ.deq;
             lookaheadBuffer.enq(txn);
+            $fdisplay(stderr, "[%0d] drainInput: New transaction from inputQ txnId=", cycle, fshow(txn.txnId));
         end
     endrule
 
@@ -76,6 +82,7 @@ module mkPuppetmaster(Puppetmaster);
     rule lookaheadCheckConflict if (state == Normal);
         let txn = lookaheadBuffer.first;
         mainSummary.checks.request.put(txn);
+        $fdisplay(stderr, "[%0d] lookaheadCheckConflict: Checking transaction txnId=", cycle, fshow(txn.txnId));
     endrule
 
     Vector#(ActiveBufferSize, Reg#(Maybe#(Transaction))) activeTxns <- replicateM(mkReg(Invalid));
@@ -90,6 +97,7 @@ module mkPuppetmaster(Puppetmaster);
         let txn = lookaheadBuffer.first;
         lookaheadBuffer.deq;
         let isCompat <- mainSummary.checks.response.get;
+        
         if (isCompat) begin
             // if compat, tell user to run the txn (schedule)
             schedQ.enq(ScheduleMessage { txnId: txn.txnId });
@@ -100,9 +108,12 @@ module mkPuppetmaster(Puppetmaster);
             // add to active list (so next refresh cycle we know to include this transaction)
             activeTxns[activeTxnsTail] <= Valid(txn);
             activeTxnsTail <= activeTxnsTail + 1;
+            $fdisplay(stderr, "[%0d] lookaheadResult: Transaction compatible, scheduled txnId=", cycle, fshow(txn.txnId), 
+                      ", activeTxnsTail=", fshow(activeTxnsTail));
         end else begin
             // if not compat, put it back into the lookahead buffer
             lookaheadReinsert.enq(txn);
+            $fdisplay(stderr, "[%0d] lookaheadResult: Transaction incompatible, re-inserted txnId=", cycle, fshow(txn.txnId));
         end
     endrule
 
@@ -124,12 +135,14 @@ module mkPuppetmaster(Puppetmaster);
             let txn = shadowQ.first;
             shadowQ.deq;
             shadowSummary.txns.put(txn);
+            $fdisplay(stderr, "[%0d] shadowUpdate: Adding new transaction to shadow summary txnId=", cycle, fshow(txn.txnId));
         end else if (!shadowComplete) begin
 
             case (activeTxns[shadowPtr]) matches
                 // Skip invalid ones
                 tagged Invalid: begin
                     // nothing to do
+                    $fdisplay(stderr, "[%0d] shadowUpdate: Skipping invalid entry at shadowPtr=", cycle, fshow(shadowPtr));
                 end
                 // For valid ones, check against workDoneQ
                 tagged Valid .txn: begin
@@ -143,11 +156,15 @@ module mkPuppetmaster(Puppetmaster);
                             skip = True;
                             // We also mark it invalid
                             activeTxns[shadowPtr] <= Invalid;
+                            $fdisplay(stderr, "[%0d] shadowUpdate: Transaction completed, removed from active list txnId=", 
+                                      cycle, fshow(txn.txnId), ", shadowPtr=", fshow(shadowPtr));
                         end
                     end
                     // Otherwise, just add to the filter
                     if (!skip) begin
                         shadowSummary.txns.put(txn);
+                        $fdisplay(stderr, "[%0d] shadowUpdate: Adding existing transaction to shadow summary txnId=", 
+                                  cycle, fshow(txn.txnId), ", shadowPtr=", fshow(shadowPtr));
                     end
                 end
             endcase
@@ -156,8 +173,9 @@ module mkPuppetmaster(Puppetmaster);
             shadowPtr <= shadowPtr-1;
             if (shadowPtr == activeTxnsHead) begin
                 shadowComplete <= True;
+                $fdisplay(stderr, "[%0d] shadowUpdate: Shadow processing complete, reached activeTxnsHead=", 
+                          cycle, fshow(activeTxnsHead));
             end
-
         end
     endrule
 
@@ -165,27 +183,35 @@ module mkPuppetmaster(Puppetmaster);
     rule tickRefreshTimer if (state == Normal);
         if (refreshTimer > 0) begin
             refreshTimer <= refreshTimer-1;
+            $fdisplay(stderr, "[%0d] tickRefreshTimer: Countdown: ", cycle, fshow(refreshTimer));
         end else begin
             state <= StartSwitch;
+            $fdisplay(stderr, "[%0d] tickRefreshTimer: Timer expired, transitioning to StartSwitch state", cycle);
         end
     endrule
 
     // wait for shadowQ to be drained and all active txns to be handled
     rule performSwitch if (state == StartSwitch && !shadowQ.notEmpty && shadowComplete);
-        shadowSummary.startClearCopy;
-        mainSummary.startClearCopy;
+        shadowSummary.startCopy;
+        mainSummary.startCopy;
         state <= Switching;
+        $fdisplay(stderr, "[%0d] performSwitch: Switching state, starting copying process", cycle);
     endrule
 
     rule clearShadow if (state == Switching);
         shadowSummary.setChunk.put(unpack(0));
+        $fdisplay(stderr, "[%0d] clearShadow: Clearing shadow summary chunk", cycle);
     endrule
+    
     rule copyShadowToMain if (state == Switching);
         let data <- shadowSummary.getChunk.get;
         mainSummary.setChunk.put(data);
+        $fdisplay(stderr, "[%0d] copyShadowToMain: Copying chunk from shadow to main summary", cycle);
     endrule
+    
     rule drainMain if (state == Switching);
         let _ <- mainSummary.getChunk.get;
+        $fdisplay(stderr, "[%0d] drainMain: Draining chunk from main summary", cycle);
     endrule
 
     // When the switch is done (main summary is now active), reinitialize stuff
@@ -193,12 +219,16 @@ module mkPuppetmaster(Puppetmaster);
         if (activeTxnsEmpty) begin
             shadowPtr <= ?;
             shadowComplete <= activeTxnsEmpty;
+            $fdisplay(stderr, "[%0d] switchDone: Switching complete, active transactions empty", cycle);
         end else begin
             shadowPtr <= activeTxnsTail-1;
             shadowComplete <= False;
+            $fdisplay(stderr, "[%0d] switchDone: Switching complete, active transactions present, shadowPtr=", 
+                      cycle, fshow(activeTxnsTail-1));
         end
         refreshTimer <= fromInteger(valueOf(RefreshDuration)-1);
         state <= Normal;
+        $fdisplay(stderr, "[%0d] switchDone: Reset refresh timer, returning to Normal state", cycle);
     endrule
 
     // Puppets 
@@ -207,11 +237,32 @@ module mkPuppetmaster(Puppetmaster);
 
     method Action setNumPuppets(Bit#(16) _numPuppets);
         numPuppets <= _numPuppets;
+        $fdisplay(stderr, "[%0d] setNumPuppets: Updated puppets to ", cycle, fshow(_numPuppets));
     endmethod
+    
     method Bit#(16) getNumPuppets = numPuppets;
 
-    interface transactions = toPut(inputQ);
-    interface scheduled = toGet(schedQ);
-    interface workDone = toPut(workDoneQ);
+    interface Put transactions;
+        method Action put(Transaction txn);
+            inputQ.enq(txn);
+            $fdisplay(stderr, "[%0d] transactions.put: New transaction received txnId=", cycle, fshow(txn.txnId));
+        endmethod
+    endinterface
+    
+    interface Get scheduled;
+        method ActionValue#(ScheduleMessage) get;
+            let msg = schedQ.first;
+            schedQ.deq;
+            $fdisplay(stderr, "[%0d] scheduled.get: Scheduling transaction txnId=", cycle, fshow(msg.txnId));
+            return msg;
+        endmethod
+    endinterface
+    
+    interface Put workDone;
+        method Action put(WorkDoneMessage msg);
+            workDoneQ.enq(msg);
+            $fdisplay(stderr, "[%0d] workDone.put: Work done message received txnId=", cycle, fshow(msg.txnId));
+        endmethod
+    endinterface
 
 endmodule
